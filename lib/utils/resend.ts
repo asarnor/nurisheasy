@@ -6,6 +6,10 @@ if (!process.env.RESEND_API_KEY) {
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
+// Email sender address - configurable via env var, defaults to orders@safeplate.com
+const EMAIL_FROM = process.env.RESEND_FROM_EMAIL || 'SafePlate <orders@safeplate.com>';
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+
 /**
  * Send order confirmation email
  */
@@ -24,7 +28,7 @@ export async function sendOrderConfirmation(
 
   try {
     await resend.emails.send({
-      from: 'SafePlate <orders@safeplate.com>',
+      from: EMAIL_FROM,
       to,
       subject: `Order Confirmation #${orderId}`,
       html: `
@@ -66,7 +70,7 @@ export async function sendVendorOrderNotification(
 
   try {
     await resend.emails.send({
-      from: 'SafePlate <orders@safeplate.com>',
+      from: EMAIL_FROM,
       to,
       subject: `New Order #${orderId} - Action Required`,
       html: `
@@ -81,7 +85,7 @@ export async function sendVendorOrderNotification(
             (item) => `<li>${item.name} x${item.quantity}</li>`
           ).join('')}
         </ul>
-        <p><a href="${process.env.NEXT_PUBLIC_APP_URL}/vendor/orders/${orderId}">View Order</a></p>
+        <p><a href="${APP_URL}/vendor/orders/${orderId}">View Order</a></p>
       `,
     });
   } catch (error) {

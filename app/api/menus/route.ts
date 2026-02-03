@@ -40,6 +40,7 @@ export async function GET(request: NextRequest) {
 
     // Filter by delivery radius if consumer has coordinates
     if (organization.address?.coordinates) {
+      const consumerCoords = organization.address.coordinates;
       menuItems = menuItems.filter((item: any) => {
         const vendor = item.vendorId;
         if (!vendor?.address?.coordinates) {
@@ -47,7 +48,7 @@ export async function GET(request: NextRequest) {
         }
         
         return isWithinDeliveryRadius(
-          organization.address.coordinates,
+          consumerCoords,
           vendor.address.coordinates,
           10 // 10km default radius
         );
@@ -55,10 +56,10 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.json({
-      items: menuItems.map((item) => ({
+      items: menuItems.map((item: any) => ({
         id: item._id,
-        vendorId: item.vendorId._id,
-        vendorName: item.vendorId.name,
+        vendorId: item.vendorId?._id || item.vendorId,
+        vendorName: (item.vendorId as any)?.name || 'Unknown Vendor',
         name: item.name,
         description: item.description,
         price: item.price,

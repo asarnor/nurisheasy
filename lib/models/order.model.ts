@@ -109,7 +109,8 @@ const OrderSchema: Schema = new Schema(
 OrderSchema.pre('save', async function (next) {
   if (this.isNew) {
     try {
-      const groupHome = await Organization.findById(this.consumerId);
+      const order = this as unknown as IOrder;
+      const groupHome = await Organization.findById(order.consumerId);
       
       if (!groupHome) {
         return next(new Error('Consumer organization not found'));
@@ -122,7 +123,7 @@ OrderSchema.pre('save', async function (next) {
       const bannedTags = groupHome.safetyProfile.criticalAllergens;
 
       // Check EVERY item in EVERY subOrder
-      for (const subOrder of this.subOrders) {
+      for (const subOrder of order.subOrders) {
         for (const item of subOrder.items) {
           const menuItem = await MenuItem.findById(item.menuItemId);
           
