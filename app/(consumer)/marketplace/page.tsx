@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { MenuItemCard } from '@/components/consumer/MenuItemCard';
 import { MultiVendorCart } from '@/components/consumer/MultiVendorCart';
 import { DietaryFilter } from '@/components/consumer/DietaryFilter';
+import { Header } from '@/components/layout/Header';
 import { useRouter } from 'next/navigation';
 
 interface MenuItem {
@@ -110,21 +111,7 @@ export default function MarketplacePage() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <header className="bg-white shadow-sm border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <h1 className="text-2xl font-bold text-gray-900">SafePlate</h1>
-              <span className="text-gray-500">Marketplace</span>
-            </div>
-            <div className="hidden md:block">
-              <span className="text-sm text-gray-600">
-                Multi-Vendor Cart ({cart.length} items)
-              </span>
-            </div>
-          </div>
-        </div>
-      </header>
+      <Header title="SafePlate - Marketplace" />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">

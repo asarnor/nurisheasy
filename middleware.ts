@@ -2,6 +2,7 @@ import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
 
 const isPublicRoute = createRouteMatcher([
+  '/', // Landing page - allow unauthenticated access
   '/api/webhooks/stripe(.*)',
   '/api/webhooks/clerk(.*)',
   '/api/health(.*)',
@@ -19,10 +20,9 @@ export default clerkMiddleware(async (auth, req) => {
   const { userId } = await auth();
   
   if (!userId) {
-    const signInPath = process.env.NEXT_PUBLIC_CLERK_SIGN_IN_URL || '/sign-in';
-    const signInUrl = new URL(signInPath, req.url);
-    signInUrl.searchParams.set('redirect_url', req.url);
-    return NextResponse.redirect(signInUrl);
+    // Redirect to home page (landing page) instead of directly to sign-in
+    // This allows users to choose their role first
+    return NextResponse.redirect(new URL('/', req.url));
   }
 
   return NextResponse.next();

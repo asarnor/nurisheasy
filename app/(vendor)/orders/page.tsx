@@ -4,6 +4,8 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
+import { MobileHeader } from '@/components/layout/MobileHeader';
+import { Header } from '@/components/layout/Header';
 
 interface Order {
   _id: string;
@@ -78,11 +80,12 @@ export default function VendorOrdersPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Mobile Header */}
-      <header className="bg-white shadow-sm border-b border-gray-200 md:hidden">
-        <div className="px-4 py-4">
-          <h1 className="text-xl font-bold">Orders</h1>
-        </div>
-      </header>
+      <MobileHeader title="Orders" />
+      
+      {/* Desktop Header */}
+      <div className="hidden md:block">
+        <Header title="Order Management" />
+      </div>
 
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <h1 className="text-3xl font-bold mb-6 hidden md:block">Order Management</h1>

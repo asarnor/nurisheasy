@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
+import { UserButton } from '@clerk/nextjs';
 
 interface OrderItem {
   name: string;
@@ -188,7 +189,19 @@ export default function KitchenDisplaySystemPage() {
   return (
     <div className="min-h-screen bg-gray-900 text-white p-4">
       <div className="max-w-7xl mx-auto">
-        <h1 className="text-3xl font-bold mb-6 text-center">Kitchen Display System</h1>
+        <div className="flex items-center justify-between mb-6">
+          <h1 className="text-3xl font-bold">Kitchen Display System</h1>
+          <UserButton 
+            afterSignOutUrl="/sign-in"
+            appearance={{
+              elements: {
+                avatarBox: 'w-10 h-10',
+                userButtonPopoverCard: 'bg-gray-800 border-gray-700',
+                userButtonPopoverActionButton: 'text-white hover:bg-gray-700',
+              },
+            }}
+          />
+        </div>
         
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {/* New Orders Column */}

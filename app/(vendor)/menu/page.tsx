@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/Button';
 import { Toggle } from '@/components/ui/Toggle';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import { Header } from '@/components/layout/Header';
 
 interface MenuItem {
   _id: string;
@@ -138,6 +139,7 @@ export default function MenuEditorPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      <Header title="Menu Editor" />
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="flex justify-between items-center mb-6">
           <h1 className="text-3xl font-bold">Menu Editor</h1>

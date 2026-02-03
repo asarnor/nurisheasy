@@ -6,6 +6,8 @@ import { Card } from '@/components/ui/Card';
 import { Toggle } from '@/components/ui/Toggle';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
+import { MobileHeader } from '@/components/layout/MobileHeader';
+import { Header } from '@/components/layout/Header';
 
 interface SafetyProfile {
   criticalAllergens: string[];
@@ -164,17 +166,12 @@ export default function ProfilePage() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Mobile Header */}
-      <header className="bg-white shadow-sm border-b border-gray-200 md:hidden">
-        <div className="px-4 py-4 flex items-center">
-          <button
-            onClick={() => router.back()}
-            className="mr-4 text-gray-600 hover:text-gray-900"
-          >
-            ← Back
-          </button>
-          <h1 className="text-xl font-bold">Profile</h1>
-        </div>
-      </header>
+      <MobileHeader title="Profile" showBack onBack={() => router.back()} />
+      
+      {/* Desktop Header */}
+      <div className="hidden md:block">
+        <Header title="Profile Settings" />
+      </div>
 
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <h1 className="text-3xl font-bold mb-6 hidden md:block">Profile Settings</h1>

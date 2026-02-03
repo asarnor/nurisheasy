@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
+import { UserButton } from '@clerk/nextjs';
 
 interface DashboardStats {
   activeOrders: number;
@@ -112,7 +113,10 @@ export default function AdminDashboardPage() {
       <div className="flex">
         {/* Sidebar */}
         <aside className="w-64 bg-white shadow-sm min-h-screen p-6 hidden md:block">
-          <h2 className="text-2xl font-bold mb-8">SafePlate Admin</h2>
+          <div className="flex items-center justify-between mb-8">
+            <h2 className="text-2xl font-bold">SafePlate Admin</h2>
+            <UserButton afterSignOutUrl="/sign-in" />
+          </div>
           <nav className="space-y-2">
             <a
               href="/admin/dashboard"
