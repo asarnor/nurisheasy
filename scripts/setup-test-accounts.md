@@ -90,6 +90,15 @@ db.organizations.updateOne(
 )
 ```
 
+### 4. Or use the seed script (recommended)
+
+```bash
+MONGO_URI="mongodb://127.0.0.1:27017/safeplate_dev" \\
+CLERK_CONSUMER_ORG_ID="org_YOUR_CONSUMER_ORG_ID" \\
+CLERK_VENDOR_ORG_ID="org_YOUR_VENDOR_ORG_ID" \\
+npm run seed:orgs
+```
+
 ---
 
 ## Method 2: Using Clerk API (Advanced)

@@ -11,7 +11,21 @@ function SignInContent() {
   // Redirect to home page after sign-in
   // Home page will then redirect based on actual organization type
   const getRedirectUrl = () => {
-    return '/';
+    const debugEnabled = process.env.NEXT_PUBLIC_DEBUG_MODE === 'true';
+
+    if (!debugEnabled) {
+      return '/';
+    }
+
+    switch (role) {
+      case 'admin':
+        return '/admin/dashboard';
+      case 'vendor':
+        return '/vendor/kds';
+      case 'consumer':
+      default:
+        return '/marketplace';
+    }
   };
 
   const getRoleTitle = () => {
