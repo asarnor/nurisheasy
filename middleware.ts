@@ -16,6 +16,14 @@ export default clerkMiddleware(async (auth, req) => {
     return NextResponse.next();
   }
 
+  const debugEnabled =
+    process.env.NEXT_PUBLIC_DEBUG_MODE === 'true' ||
+    process.env.DEBUG_MODE === 'true';
+
+  if (debugEnabled && process.env.NODE_ENV !== 'production') {
+    return NextResponse.next();
+  }
+
   // Protect all other routes
   const { userId } = await auth();
   

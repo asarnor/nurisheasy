@@ -6,11 +6,13 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Toggle } from '@/components/ui/Toggle';
 import { Input } from '@/components/ui/Input';
-import { Select } from '@/components/ui/Select';
 import { Header } from '@/components/layout/Header';
+import { MobileHeader } from '@/components/layout/MobileHeader';
+import { apiFetch } from '@/lib/utils/api';
 
 interface MenuItem {
   _id: string;
+  id?: string;
   name: string;
   description: string;
   price: number;
@@ -40,10 +42,14 @@ export default function MenuEditorPage() {
   const fetchMenuItems = async () => {
     try {
       // Fetch vendor's menu items
-      const response = await fetch('/api/menus?vendorId=current');
+      const response = await apiFetch('/api/menus?vendorId=current');
       if (response.ok) {
         const data = await response.json();
-        setMenuItems(data.items || []);
+        const normalized = (data.items || []).map((item: MenuItem) => ({
+          ...item,
+          _id: item._id || item.id || '',
+        }));
+        setMenuItems(normalized);
       }
     } catch (error) {
       console.error('Error fetching menu items:', error);
@@ -69,16 +75,17 @@ export default function MenuEditorPage() {
       const payload = {
         ...formData,
         price: Math.round(parseFloat(formData.price) * 100),
-        ingredients: formData.ingredients.split(',').map((i) => i.trim()),
+        ingredients: formData.ingredients
+          .split(',')
+          .map((i) => i.trim())
+          .filter(Boolean),
       };
 
-      const url = editingItem
-        ? `/api/menus/${editingItem._id}`
-        : '/api/menus';
-      
-      const method = editingItem ? 'PATCH' : 'POST';
+      const isEditing = Boolean(editingItem?._id);
+      const url = isEditing ? `/api/menus/${editingItem._id}` : '/api/menus';
+      const method = isEditing ? 'PATCH' : 'POST';
 
-      const response = await fetch(url, {
+      const response = await apiFetch(url, {
         method,
         headers: {
           'Content-Type': 'application/json',
@@ -108,7 +115,7 @@ export default function MenuEditorPage() {
 
   const handleToggleAvailability = async (itemId: string, currentStatus: boolean) => {
     try {
-      const response = await fetch(`/api/menus/${itemId}`, {
+      const response = await apiFetch(`/api/menus/${itemId}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -138,11 +145,17 @@ export default function MenuEditorPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <Header title="Menu Editor" />
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="flex justify-between items-center mb-6">
-          <h1 className="text-3xl font-bold">Menu Editor</h1>
+    <div className="min-h-screen app-surface">
+      <MobileHeader title="Menu Editor" showBack onBack={() => router.back()} />
+      <div className="hidden md:block">
+        <Header title="Menu Editor" />
+      </div>
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-24 md:pb-8 app-grid animate-fade-up">
+        <div className="flex flex-col md:flex-row justify-between md:items-center gap-4 mb-6">
+          <div>
+            <h1 className="text-3xl font-semibold">Menu Editor</h1>
+            <p className="text-sm text-slate-500">Manage availability and update dietary tags.</p>
+          </div>
           <Button onClick={() => setEditingItem({} as MenuItem)}>
             Add Menu Item
           </Button>
@@ -177,7 +190,7 @@ export default function MenuEditorPage() {
               />
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-semibold text-slate-700 mb-2">
                   Allergens
                 </label>
                 <div className="flex flex-wrap gap-2">
@@ -192,8 +205,8 @@ export default function MenuEditorPage() {
                       }}
                       className={`px-3 py-1 rounded-full text-sm ${
                         formData.allergenTags.includes(allergen)
-                          ? 'bg-red-100 text-red-800 border-2 border-red-300'
-                          : 'bg-gray-100 text-gray-700 border-2 border-gray-300'
+                          ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                          : 'bg-slate-100 text-slate-700 border border-slate-200'
                       }`}
                     >
                       {allergen.replace(/_/g, ' ')}
@@ -233,24 +246,24 @@ export default function MenuEditorPage() {
 
         {loading ? (
           <div className="text-center py-12">
-            <p className="text-gray-500">Loading menu items...</p>
+            <p className="text-slate-500">Loading menu items...</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {menuItems.map((item) => (
               <Card key={item._id}>
                 <div className="flex justify-between items-start mb-2">
-                  <h3 className="font-semibold text-lg">{item.name}</h3>
+                  <h3 className="font-semibold text-lg text-slate-900">{item.name}</h3>
                   <Toggle
                     label=""
                     checked={item.isAvailable}
                     onChange={() => handleToggleAvailability(item._id, item.isAvailable)}
                   />
                 </div>
-                <p className="text-sm text-gray-600 mb-2">{item.description}</p>
-                <p className="font-semibold mb-2">${(item.price / 100).toFixed(2)}</p>
+                <p className="text-sm text-slate-500 mb-2">{item.description}</p>
+                <p className="font-semibold mb-2 text-slate-900">${(item.price / 100).toFixed(2)}</p>
                 {item.allergenTags.length > 0 && (
-                  <p className="text-xs text-red-600 mb-2">
+                  <p className="text-xs text-rose-600 mb-2">
                     Contains: {item.allergenTags.join(', ')}
                   </p>
                 )}
@@ -267,6 +280,33 @@ export default function MenuEditorPage() {
           </div>
         )}
       </div>
+
+      {/* Mobile Bottom Navigation */}
+      <nav className="fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur border-t border-slate-200 md:hidden">
+        <div className="flex justify-around py-2">
+          <button
+            onClick={() => router.push('/vendor/orders')}
+            className="flex flex-col items-center p-2 text-slate-600"
+          >
+            <span className="text-2xl">📦</span>
+            <span className="text-xs">Orders</span>
+          </button>
+          <button
+            onClick={() => router.push('/vendor/menu')}
+            className="flex flex-col items-center p-2 text-emerald-600"
+          >
+            <span className="text-2xl">📋</span>
+            <span className="text-xs">Menu</span>
+          </button>
+          <button
+            onClick={() => router.push('/vendor/settings')}
+            className="flex flex-col items-center p-2 text-slate-600"
+          >
+            <span className="text-2xl">⚙️</span>
+            <span className="text-xs">Settings</span>
+          </button>
+        </div>
+      </nav>
     </div>
   );
 }

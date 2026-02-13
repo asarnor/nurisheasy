@@ -25,6 +25,8 @@ These variables have defaults or are optional:
 |---------|---------|---------|-------------|
 | `NODE_ENV` | `development` | `lib/mongodb.ts`, `lib/utils/env.ts` | Environment mode |
 | `NEXT_PUBLIC_APP_URL` | `http://localhost:3000` | `lib/utils/resend.ts`, `middleware.ts` | Application base URL |
+| `DEBUG_MODE` | - | `middleware.ts`, `lib/utils/debug.ts` | Enables mock data and bypasses auth (non-production only) |
+| `NEXT_PUBLIC_DEBUG_MODE` | - | `lib/utils/debug-client.ts` | Enables client-side debug mode and mock data query params |
 
 ### Clerk Configuration
 

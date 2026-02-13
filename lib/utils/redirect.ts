@@ -1,17 +1,38 @@
 import { redirect } from 'next/navigation';
 import { auth } from '@clerk/nextjs/server';
-import { getCurrentOrganization } from './clerk';
+import { getCurrentOrganization, getOrganizationFromMemberships } from './clerk';
+import { getTestUserRole } from './debug';
 
 /**
  * Redirect authenticated user to their appropriate dashboard based on role
  */
 export async function redirectToRoleDashboard() {
   const { orgRole } = await auth();
-  const organization = await getCurrentOrganization();
+  const debugRole = await getTestUserRole();
+
+  if (debugRole === 'admin') {
+    redirect('/admin/dashboard');
+  }
+  if (debugRole === 'vendor') {
+    redirect('/vendor/kds');
+  }
+  if (debugRole === 'consumer') {
+    redirect('/marketplace');
+  }
+
+  let organization = await getCurrentOrganization();
 
   // Admin check (based on Clerk role)
   if (orgRole === 'org:admin') {
     redirect('/admin/dashboard');
+  }
+
+  if (!organization) {
+    const fallback = await getOrganizationFromMemberships();
+    if (fallback.orgRole === 'org:admin') {
+      redirect('/admin/dashboard');
+    }
+    organization = fallback.organization || organization;
   }
 
   // Organization type check

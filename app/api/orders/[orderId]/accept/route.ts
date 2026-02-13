@@ -4,6 +4,8 @@ import Order from '@/lib/models/order.model';
 import { getCurrentOrganization } from '@/lib/utils/clerk';
 import { capturePaymentIntent, transferToVendor } from '@/lib/utils/stripe';
 import Organization from '@/lib/models/organization.model';
+import { shouldUseMockData, getDebugRoleFromRequest } from '@/lib/utils/debug';
+import { acceptMockSubOrder, getMockVendorId } from '@/lib/mock-data';
 
 /**
  * POST /api/orders/[orderId]/accept
@@ -14,6 +16,31 @@ export async function POST(
   { params }: { params: { orderId: string } }
 ) {
   try {
+    if (await shouldUseMockData(request)) {
+      const role = await getDebugRoleFromRequest(request);
+      if (role !== 'vendor') {
+        return NextResponse.json(
+          { error: 'Vendor organization required' },
+          { status: 403 }
+        );
+      }
+
+      const vendorId = getMockVendorId();
+      const order = acceptMockSubOrder(params.orderId, vendorId);
+
+      if (!order) {
+        return NextResponse.json(
+          { error: 'Order not found' },
+          { status: 404 }
+        );
+      }
+
+      return NextResponse.json({
+        order,
+        message: 'Sub-order accepted successfully',
+      });
+    }
+
     await connectDB();
     
     const organization = await getCurrentOrganization();

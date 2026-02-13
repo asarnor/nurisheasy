@@ -5,6 +5,7 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { UserButton } from '@clerk/nextjs';
+import { apiFetch } from '@/lib/utils/api';
 
 interface OrderItem {
   name: string;
@@ -36,7 +37,7 @@ export default function KitchenDisplaySystemPage() {
 
   const fetchOrders = async () => {
     try {
-      const response = await fetch('/api/orders');
+      const response = await apiFetch('/api/orders');
       if (response.ok) {
         const data = await response.json();
         const vendorOrders = data.orders || [];
@@ -47,15 +48,17 @@ export default function KitchenDisplaySystemPage() {
         const readyList: SubOrder[] = [];
 
         vendorOrders.forEach((order: any) => {
-          const subOrder = order.subOrders.find(
-            (so: any) => so.vendorId === order.vendorId
-          );
+          const subOrder = order.subOrders?.[0];
           
           if (subOrder) {
             const subOrderData: SubOrder = {
               ...subOrder,
               orderId: order._id,
-              consumerName: order.consumerId?.name || 'Unknown',
+              vendorId:
+                typeof subOrder.vendorId === 'object'
+                  ? subOrder.vendorId?._id || subOrder.vendorId?.id || ''
+                  : subOrder.vendorId,
+              consumerName: order.consumerId?.name || order.consumerName || 'Unknown',
             };
 
             if (subOrder.status === 'PENDING') {
@@ -79,7 +82,7 @@ export default function KitchenDisplaySystemPage() {
 
   const handleAccept = async (orderId: string) => {
     try {
-      const response = await fetch(`/api/orders/${orderId}/accept`, {
+      const response = await apiFetch(`/api/orders/${orderId}/accept`, {
         method: 'POST',
       });
 
@@ -94,25 +97,54 @@ export default function KitchenDisplaySystemPage() {
     }
   };
 
-  const handleReject = async (orderId: string) => {
+  const handleReject = async (orderId: string, vendorId?: string) => {
     if (!confirm('Are you sure you want to reject this order?')) {
       return;
     }
-    // Implement reject logic
-    console.log('Reject order:', orderId);
+    await handleStatusChange(orderId, 'CANCELLED', vendorId);
   };
 
-  const handleStatusChange = async (orderId: string, newStatus: string) => {
-    // Implement status update logic
-    console.log('Update status:', orderId, newStatus);
+  const handleStatusChange = async (
+    orderId: string,
+    newStatus: string,
+    vendorId?: string
+  ) => {
+    try {
+      const response = await apiFetch(`/api/orders/${orderId}/status`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ status: newStatus, vendorId }),
+      });
+
+      if (!response.ok) {
+        if (response.status === 404 || response.status === 403) {
+          console.log('Status updates are unavailable outside debug mode.');
+          return;
+        }
+        throw new Error('Failed to update order status');
+      }
+    } catch (error) {
+      console.error('Error updating status:', error);
+      alert('Failed to update order status');
+    }
     fetchOrders();
   };
 
   const OrderCard = ({ order }: { order: SubOrder }) => {
     const hasAllergenAlerts = order.allergenAlerts && order.allergenAlerts.length > 0;
+    const statusLabelMap: Record<string, string> = {
+      PENDING: 'New Order',
+      ACCEPTED: 'Accepted',
+      PREPARING: 'Preparing',
+      READY: 'Ready for Pickup',
+      DELIVERED: 'Delivered',
+      CANCELLED: 'Cancelled',
+    };
 
     return (
-      <Card className="mb-4">
+      <Card className="mb-4 bg-slate-900/70 border-slate-800 text-slate-100">
         {hasAllergenAlerts && (
           <div className="bg-red-600 text-white p-3 mb-3 rounded-lg">
             <p className="font-bold text-lg">ALLERGY ALERT!</p>
@@ -121,16 +153,18 @@ export default function KitchenDisplaySystemPage() {
         )}
         
         <div className="mb-3">
-          <h3 className="font-semibold text-lg">New Order</h3>
-          <p className="text-sm text-gray-600">From: {order.consumerName}</p>
-          <p className="text-sm text-gray-600">Order ID: {order.orderId.slice(-8)}</p>
+          <h3 className="font-semibold text-lg">
+            {statusLabelMap[order.status] || 'Order Update'}
+          </h3>
+          <p className="text-sm text-slate-300">From: {order.consumerName}</p>
+          <p className="text-sm text-slate-400">Order ID: {order.orderId.slice(-8)}</p>
         </div>
 
         <div className="mb-3">
           <h4 className="font-medium mb-2">Items:</h4>
           <ul className="space-y-1">
             {order.items.map((item, idx) => (
-              <li key={idx} className="text-sm">
+              <li key={idx} className="text-sm text-slate-200">
                 {item.name} × {item.quantity} - ${((item.price * item.quantity) / 100).toFixed(2)}
               </li>
             ))}
@@ -138,7 +172,7 @@ export default function KitchenDisplaySystemPage() {
         </div>
 
         <div className="flex justify-between items-center mb-3">
-          <span className="font-semibold">Total: ${(order.vendorTotal / 100).toFixed(2)}</span>
+          <span className="font-semibold text-emerald-200">Total: ${(order.vendorTotal / 100).toFixed(2)}</span>
         </div>
 
         {order.status === 'PENDING' && (
@@ -151,7 +185,7 @@ export default function KitchenDisplaySystemPage() {
               Accept
             </Button>
             <Button
-              onClick={() => handleReject(order.orderId)}
+              onClick={() => handleReject(order.orderId, order.vendorId)}
               className="flex-1"
               variant="danger"
             >
@@ -163,7 +197,7 @@ export default function KitchenDisplaySystemPage() {
         {order.status === 'ACCEPTED' && (
           <div className="flex gap-2">
             <Button
-              onClick={() => handleStatusChange(order.orderId, 'PREPARING')}
+              onClick={() => handleStatusChange(order.orderId, 'PREPARING', order.vendorId)}
               className="flex-1"
             >
               Start Preparing
@@ -174,11 +208,23 @@ export default function KitchenDisplaySystemPage() {
         {order.status === 'PREPARING' && (
           <div className="flex gap-2">
             <Button
-              onClick={() => handleStatusChange(order.orderId, 'READY')}
+              onClick={() => handleStatusChange(order.orderId, 'READY', order.vendorId)}
               className="flex-1"
               variant="primary"
             >
               Mark Ready
+            </Button>
+          </div>
+        )}
+
+        {order.status === 'READY' && (
+          <div className="flex gap-2">
+            <Button
+              onClick={() => handleStatusChange(order.orderId, 'DELIVERED', order.vendorId)}
+              className="flex-1"
+              variant="secondary"
+            >
+              Mark Delivered
             </Button>
           </div>
         )}
@@ -187,10 +233,13 @@ export default function KitchenDisplaySystemPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white p-4">
+    <div className="min-h-screen bg-slate-950 text-white p-4">
       <div className="max-w-7xl mx-auto">
         <div className="flex items-center justify-between mb-6">
-          <h1 className="text-3xl font-bold">Kitchen Display System</h1>
+          <div>
+            <h1 className="text-3xl font-semibold">Kitchen Display System</h1>
+            <p className="text-sm text-slate-400">Live queue and allergy alerts</p>
+          </div>
           <UserButton 
             afterSignOutUrl="/sign-in"
             appearance={{
@@ -203,16 +252,16 @@ export default function KitchenDisplaySystemPage() {
           />
         </div>
         
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           {/* New Orders Column */}
           <div>
-            <div className="bg-gray-800 rounded-lg p-4 mb-4">
+            <div className="bg-slate-900/70 border border-slate-800 rounded-2xl p-4 mb-4">
               <h2 className="text-xl font-semibold mb-2">New Orders</h2>
               <Badge variant="warning">{newOrders.length}</Badge>
             </div>
             <div className="space-y-4">
               {newOrders.length === 0 ? (
-                <Card className="text-center py-8 text-gray-400">
+                <Card className="text-center py-8 text-slate-400 bg-slate-900/60 border-slate-800">
                   No new orders
                 </Card>
               ) : (
@@ -225,13 +274,13 @@ export default function KitchenDisplaySystemPage() {
 
           {/* To Prep Column */}
           <div>
-            <div className="bg-gray-800 rounded-lg p-4 mb-4">
+            <div className="bg-slate-900/70 border border-slate-800 rounded-2xl p-4 mb-4">
               <h2 className="text-xl font-semibold mb-2">To Prep</h2>
               <Badge variant="info">{toPrep.length}</Badge>
             </div>
             <div className="space-y-4">
               {toPrep.length === 0 ? (
-                <Card className="text-center py-8 text-gray-400">
+                <Card className="text-center py-8 text-slate-400 bg-slate-900/60 border-slate-800">
                   No orders to prep
                 </Card>
               ) : (
@@ -244,13 +293,13 @@ export default function KitchenDisplaySystemPage() {
 
           {/* Ready Column */}
           <div>
-            <div className="bg-gray-800 rounded-lg p-4 mb-4">
+            <div className="bg-slate-900/70 border border-slate-800 rounded-2xl p-4 mb-4">
               <h2 className="text-xl font-semibold mb-2">Ready</h2>
               <Badge variant="success">{ready.length}</Badge>
             </div>
             <div className="space-y-4">
               {ready.length === 0 ? (
-                <Card className="text-center py-8 text-gray-400">
+                <Card className="text-center py-8 text-slate-400 bg-slate-900/60 border-slate-800">
                   No orders ready
                 </Card>
               ) : (

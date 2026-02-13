@@ -4,6 +4,8 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
+import { AdminShell } from '@/components/layout/AdminShell';
+import { getMockStore } from '@/lib/mock-data';
 
 interface CriticalIssue {
   id: string;
@@ -29,26 +31,7 @@ export default function TriagePage() {
   const fetchIssues = async () => {
     try {
       // This would fetch from an admin API endpoint
-      // Mock data for now
-      const mockIssues: CriticalIssue[] = [
-        {
-          id: '1',
-          type: 'unresponsive',
-          vendorName: 'Vendor A',
-          orderId: 'order_123',
-          message: 'Vendor unresponsive for 20 minutes',
-          severity: 'critical',
-        },
-        {
-          id: '2',
-          type: 'unresponsive',
-          vendorName: 'Vendor B',
-          orderId: 'order_456',
-          message: 'Vendor unresponsive for 15 minutes',
-          severity: 'high',
-        },
-      ];
-      setIssues(mockIssues);
+      setIssues(getMockStore().issues);
     } catch (error) {
       console.error('Error fetching issues:', error);
     } finally {
@@ -77,79 +60,74 @@ export default function TriagePage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Mobile Header */}
-      <header className="bg-white shadow-sm border-b border-gray-200">
-        <div className="px-4 py-4">
-          <h1 className="text-xl font-bold">Critical Issues</h1>
+    <AdminShell
+      title="Critical Issues"
+      subtitle="Escalate vendor alerts and resolve time-sensitive disputes."
+      active="triage"
+    >
+      {loading ? (
+        <div className="text-center py-12">
+          <p className="text-slate-500">Loading issues...</p>
         </div>
-      </header>
-
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {loading ? (
-          <div className="text-center py-12">
-            <p className="text-gray-500">Loading issues...</p>
-          </div>
-        ) : issues.length === 0 ? (
-          <Card className="text-center py-12">
-            <p className="text-gray-500">No critical issues</p>
-          </Card>
-        ) : (
-          <div className="space-y-4">
-            {issues.map((issue) => (
-              <Card
-                key={issue.id}
-                className={`${
-                  issue.severity === 'critical'
-                    ? 'border-2 border-red-500 bg-red-50'
-                    : 'border border-yellow-300 bg-yellow-50'
-                }`}
-              >
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex-1">
-                    <h3 className="font-semibold text-lg mb-2">
-                      {issue.vendorName}
-                    </h3>
-                    <p className="text-gray-700 mb-2">{issue.message}</p>
-                    <p className="text-sm text-gray-600">
-                      Order ID: {issue.orderId.slice(-8)}
-                    </p>
-                  </div>
-                  {issue.severity === 'critical' && (
-                    <span className="px-2 py-1 bg-red-600 text-white text-xs font-bold rounded">
-                      CRITICAL
-                    </span>
-                  )}
+      ) : issues.length === 0 ? (
+        <Card className="text-center py-12">
+          <p className="text-slate-500">No critical issues</p>
+        </Card>
+      ) : (
+        <div className="space-y-4">
+          {issues.map((issue) => (
+            <Card
+              key={issue.id}
+              className={`${
+                issue.severity === 'critical'
+                  ? 'border-2 border-rose-400/70 bg-rose-50'
+                  : 'border border-amber-300/70 bg-amber-50'
+              }`}
+            >
+              <div className="flex flex-col md:flex-row md:items-start justify-between gap-4 mb-4">
+                <div className="flex-1">
+                  <h3 className="font-semibold text-lg mb-2 text-slate-900">
+                    {issue.vendorName}
+                  </h3>
+                  <p className="text-slate-700 mb-2">{issue.message}</p>
+                  <p className="text-sm text-slate-500">
+                    Order ID: {issue.orderId.slice(-8)}
+                  </p>
                 </div>
-                <div className="flex gap-2">
+                {issue.severity === 'critical' && (
+                  <span className="px-3 py-1 bg-rose-600 text-white text-xs font-bold rounded-full">
+                    CRITICAL
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  onClick={() => handleCallVendor(issue.vendorName)}
+                  className="flex-1"
+                  variant="primary"
+                >
+                  Call Vendor
+                </Button>
+                {issue.severity !== 'critical' && (
                   <Button
-                    onClick={() => handleCallVendor(issue.vendorName)}
+                    onClick={() => handleMarkCritical(issue.id)}
+                    variant="danger"
                     className="flex-1"
-                    variant="primary"
                   >
-                    Call Vendor
+                    Mark Critical
                   </Button>
-                  {issue.severity !== 'critical' && (
-                    <Button
-                      onClick={() => handleMarkCritical(issue.id)}
-                      variant="danger"
-                      className="flex-1"
-                    >
-                      Mark Critical
-                    </Button>
-                  )}
-                  <Button
-                    onClick={() => router.push(`/admin/disputes/${issue.orderId}`)}
-                    variant="outline"
-                  >
-                    View Order
-                  </Button>
-                </div>
-              </Card>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
+                )}
+                <Button
+                  onClick={() => router.push(`/admin/disputes/${issue.orderId}`)}
+                  variant="outline"
+                >
+                  View Order
+                </Button>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+    </AdminShell>
   );
 }

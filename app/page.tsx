@@ -1,6 +1,7 @@
 import { auth } from '@clerk/nextjs/server';
 import { redirect } from 'next/navigation';
-import { getCurrentOrganization } from '@/lib/utils/clerk';
+import { getCurrentOrganization, getOrganizationFromMemberships } from '@/lib/utils/clerk';
+import { getTestUserRole } from '@/lib/utils/debug';
 
 export default async function Home() {
   const { userId, orgRole } = await auth();
@@ -106,11 +107,31 @@ export default async function Home() {
 
   // If authenticated, redirect based on role
   try {
-    const organization = await getCurrentOrganization();
+    const debugRole = await getTestUserRole();
+
+    if (debugRole === 'admin') {
+      redirect('/admin/dashboard');
+    }
+    if (debugRole === 'vendor') {
+      redirect('/vendor/kds');
+    }
+    if (debugRole === 'consumer') {
+      redirect('/marketplace');
+    }
+
+    let organization = await getCurrentOrganization();
     
     // Check if user is admin (based on Clerk role)
     if (orgRole === 'org:admin') {
       redirect('/admin/dashboard');
+    }
+
+    if (!organization) {
+      const fallback = await getOrganizationFromMemberships();
+      if (fallback.orgRole === 'org:admin') {
+        redirect('/admin/dashboard');
+      }
+      organization = fallback.organization || organization;
     }
     
     // Check organization type

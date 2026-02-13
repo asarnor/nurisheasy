@@ -35,11 +35,11 @@ export const DietaryFilter: React.FC<DietaryFilterProps> = ({
       />
       {activeFilters.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-2">
-          <span className="text-sm text-gray-600">Active filters:</span>
+          <span className="text-sm text-slate-500">Active filters:</span>
           {activeFilters.map((filter) => (
             <span
               key={filter}
-              className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800"
+              className="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800"
             >
               {filter}
             </span>

@@ -4,6 +4,8 @@ import Organization from '@/lib/models/organization.model';
 import MenuItem from '@/lib/models/menu.model';
 import { getCurrentOrganization } from '@/lib/utils/clerk';
 import { isWithinDeliveryRadius } from '@/lib/utils/geospatial';
+import { shouldUseMockData } from '@/lib/utils/debug';
+import { getMockStore } from '@/lib/mock-data';
 
 /**
  * GET /api/vendors
@@ -11,6 +13,22 @@ import { isWithinDeliveryRadius } from '@/lib/utils/geospatial';
  */
 export async function GET(request: NextRequest) {
   try {
+    if (await shouldUseMockData(request)) {
+      const store = getMockStore();
+      const vendorsWithMenus = store.organizations.vendors.map((vendor) => ({
+        id: vendor.id,
+        name: vendor.name,
+        address: vendor.address,
+        menuItemCount: store.menuItems.filter(
+          (item) => item.vendorId === vendor.id && item.isAvailable
+        ).length,
+      }));
+
+      return NextResponse.json({
+        vendors: vendorsWithMenus.filter((vendor) => vendor.menuItemCount > 0),
+      });
+    }
+
     await connectDB();
     
     const organization = await getCurrentOrganization();

@@ -6,6 +6,7 @@ import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { MobileHeader } from '@/components/layout/MobileHeader';
 import { Header } from '@/components/layout/Header';
+import { apiFetch } from '@/lib/utils/api';
 
 interface Order {
   _id: string;
@@ -29,7 +30,7 @@ export default function OrdersPage() {
 
   const fetchOrders = async () => {
     try {
-      const response = await fetch('/api/orders');
+      const response = await apiFetch('/api/orders');
       if (response.ok) {
         const data = await response.json();
         setOrders(data.orders || []);
@@ -55,7 +56,7 @@ export default function OrdersPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen app-surface">
       {/* Mobile Header */}
       <MobileHeader title="Orders" />
       
@@ -64,19 +65,19 @@ export default function OrdersPage() {
         <Header title="My Orders" />
       </div>
 
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <h1 className="text-3xl font-bold mb-6 hidden md:block">My Orders</h1>
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-24 md:pb-8 app-grid animate-fade-up">
+        <h1 className="text-3xl font-semibold mb-6 hidden md:block">My Orders</h1>
 
         {loading ? (
           <div className="text-center py-12">
-            <p className="text-gray-500">Loading orders...</p>
+            <p className="text-slate-500">Loading orders...</p>
           </div>
         ) : orders.length === 0 ? (
           <Card className="text-center py-12">
-            <p className="text-gray-500 mb-4">No orders yet</p>
+            <p className="text-slate-500 mb-4">No orders yet</p>
             <button
               onClick={() => router.push('/marketplace')}
-              className="text-green-600 hover:text-green-700"
+              className="text-emerald-600 hover:text-emerald-700 font-semibold"
             >
               Browse Marketplace
             </button>
@@ -95,15 +96,15 @@ export default function OrdersPage() {
                       <h3 className="font-semibold">Order #{order._id.slice(-8)}</h3>
                       {getStatusBadge(order.status)}
                     </div>
-                    <p className="text-sm text-gray-600 mb-2">
+                    <p className="text-sm text-slate-500 mb-2">
                       {new Date(order.createdAt).toLocaleString()}
                     </p>
-                    <div className="text-sm text-gray-600">
+                    <div className="text-sm text-slate-500">
                       {order.subOrders.length} vendor{order.subOrders.length !== 1 ? 's' : ''} • $
                       {(order.totalAmount / 100).toFixed(2)}
                     </div>
                   </div>
-                  <div className="text-gray-400">›</div>
+                  <div className="text-slate-400">›</div>
                 </div>
               </Card>
             ))}
@@ -112,25 +113,25 @@ export default function OrdersPage() {
       </div>
 
       {/* Mobile Bottom Navigation */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 md:hidden">
+      <nav className="fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur border-t border-slate-200 md:hidden">
         <div className="flex justify-around py-2">
           <button
             onClick={() => router.push('/marketplace')}
-            className="flex flex-col items-center p-2 text-gray-600"
+            className="flex flex-col items-center p-2 text-slate-600"
           >
             <span className="text-2xl">🏠</span>
             <span className="text-xs">Home</span>
           </button>
           <button
             onClick={() => router.push('/orders')}
-            className="flex flex-col items-center p-2 text-green-600"
+            className="flex flex-col items-center p-2 text-emerald-600"
           >
             <span className="text-2xl">📦</span>
             <span className="text-xs">Orders</span>
           </button>
           <button
             onClick={() => router.push('/profile')}
-            className="flex flex-col items-center p-2 text-gray-600"
+            className="flex flex-col items-center p-2 text-slate-600"
           >
             <span className="text-2xl">👤</span>
             <span className="text-xs">Profile</span>

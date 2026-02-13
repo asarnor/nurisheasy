@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { MobileHeader } from '@/components/layout/MobileHeader';
 import { Header } from '@/components/layout/Header';
+import { apiFetch } from '@/lib/utils/api';
 
 interface SafetyProfile {
   criticalAllergens: string[];
@@ -67,7 +68,7 @@ export default function ProfilePage() {
 
   const fetchOrganization = async () => {
     try {
-      const response = await fetch('/api/organizations');
+      const response = await apiFetch('/api/organizations');
       if (response.ok) {
         const data = await response.json();
         setOrganization(data.organization);
@@ -121,7 +122,7 @@ export default function ProfilePage() {
 
     try {
       setSaving(true);
-      const response = await fetch('/api/organizations', {
+      const response = await apiFetch('/api/organizations', {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -147,24 +148,24 @@ export default function ProfilePage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <p className="text-gray-500">Loading profile...</p>
+      <div className="min-h-screen app-surface flex items-center justify-center">
+        <p className="text-slate-500">Loading profile...</p>
       </div>
     );
   }
 
   if (!organization) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen app-surface flex items-center justify-center">
         <Card className="text-center py-12">
-          <p className="text-gray-500">Organization not found</p>
+          <p className="text-slate-500">Organization not found</p>
         </Card>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen app-surface">
       {/* Mobile Header */}
       <MobileHeader title="Profile" showBack onBack={() => router.back()} />
       
@@ -173,14 +174,14 @@ export default function ProfilePage() {
         <Header title="Profile Settings" />
       </div>
 
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <h1 className="text-3xl font-bold mb-6 hidden md:block">Profile Settings</h1>
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-24 md:pb-8 app-grid animate-fade-up">
+        <h1 className="text-3xl font-semibold mb-6 hidden md:block">Profile Settings</h1>
 
         <div className="space-y-6">
           {/* Dietary Restrictions */}
           <Card>
             <h2 className="text-xl font-semibold mb-4">Dietary Restrictions</h2>
-            <p className="text-sm text-gray-600 mb-4">
+            <p className="text-sm text-slate-500 mb-4">
               These restrictions will block items containing these allergens from appearing in your marketplace.
             </p>
             <div className="space-y-3">
@@ -198,7 +199,7 @@ export default function ProfilePage() {
           {/* Preferences */}
           <Card>
             <h2 className="text-xl font-semibold mb-4">Dietary Preferences</h2>
-            <p className="text-sm text-gray-600 mb-4">
+            <p className="text-sm text-slate-500 mb-4">
               These preferences will be used to filter and recommend items.
             </p>
             <div className="space-y-3">
@@ -240,7 +241,7 @@ export default function ProfilePage() {
                 value={address.street}
                 onChange={(e) => setAddress({ ...address, street: e.target.value })}
               />
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Input
                   label="City"
                   value={address.city}
@@ -270,25 +271,25 @@ export default function ProfilePage() {
       </div>
 
       {/* Mobile Bottom Navigation */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 md:hidden">
+      <nav className="fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur border-t border-slate-200 md:hidden">
         <div className="flex justify-around py-2">
           <button
             onClick={() => router.push('/marketplace')}
-            className="flex flex-col items-center p-2 text-gray-600"
+            className="flex flex-col items-center p-2 text-slate-600"
           >
             <span className="text-2xl">🏠</span>
             <span className="text-xs">Home</span>
           </button>
           <button
             onClick={() => router.push('/orders')}
-            className="flex flex-col items-center p-2 text-gray-600"
+            className="flex flex-col items-center p-2 text-slate-600"
           >
             <span className="text-2xl">📦</span>
             <span className="text-xs">Orders</span>
           </button>
           <button
             onClick={() => router.push('/profile')}
-            className="flex flex-col items-center p-2 text-green-600"
+            className="flex flex-col items-center p-2 text-emerald-600"
           >
             <span className="text-2xl">👤</span>
             <span className="text-xs">Profile</span>

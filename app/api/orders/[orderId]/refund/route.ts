@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import connectDB from '@/lib/mongodb';
 import Order from '@/lib/models/order.model';
-import { getCurrentOrganization } from '@/lib/utils/clerk';
 import { refundSubOrder } from '@/lib/utils/stripe';
 import { auth } from '@clerk/nextjs/server';
+import { shouldUseMockData } from '@/lib/utils/debug';
+import { refundMockSubOrder } from '@/lib/mock-data';
 
 const refundSchema = z.object({
   subOrderIndex: z.number().int().min(0),
@@ -19,6 +20,24 @@ export async function POST(
   { params }: { params: { orderId: string } }
 ) {
   try {
+    if (await shouldUseMockData(request)) {
+      const body = await request.json();
+      const { subOrderIndex } = refundSchema.parse(body);
+      const order = refundMockSubOrder(params.orderId, subOrderIndex);
+
+      if (!order) {
+        return NextResponse.json(
+          { error: 'Order not found' },
+          { status: 404 }
+        );
+      }
+
+      return NextResponse.json({
+        order,
+        message: 'Sub-order refunded successfully',
+      });
+    }
+
     await connectDB();
     
     // Check admin role

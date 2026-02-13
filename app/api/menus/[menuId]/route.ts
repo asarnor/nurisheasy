@@ -3,6 +3,8 @@ import { z } from 'zod';
 import connectDB from '@/lib/mongodb';
 import MenuItem from '@/lib/models/menu.model';
 import { getCurrentOrganization } from '@/lib/utils/clerk';
+import { shouldUseMockData, getDebugRoleFromRequest } from '@/lib/utils/debug';
+import { deleteMockMenuItem, getMockVendorId, updateMockMenuItem } from '@/lib/mock-data';
 
 const updateMenuItemSchema = z.object({
   name: z.string().optional(),
@@ -24,6 +26,33 @@ export async function PATCH(
   { params }: { params: { menuId: string } }
 ) {
   try {
+    if (await shouldUseMockData(request)) {
+      const role = await getDebugRoleFromRequest(request);
+      if (role !== 'vendor') {
+        return NextResponse.json(
+          { error: 'Vendor organization required' },
+          { status: 403 }
+        );
+      }
+
+      const body = await request.json();
+      const validatedData = updateMenuItemSchema.parse(body);
+      const vendorId = getMockVendorId();
+      const menuItem = updateMockMenuItem(params.menuId, {
+        ...validatedData,
+        vendorId,
+      });
+
+      if (!menuItem) {
+        return NextResponse.json(
+          { error: 'Menu item not found' },
+          { status: 404 }
+        );
+      }
+
+      return NextResponse.json({ menuItem });
+    }
+
     await connectDB();
     
     const organization = await getCurrentOrganization();
@@ -100,6 +129,26 @@ export async function DELETE(
   { params }: { params: { menuId: string } }
 ) {
   try {
+    if (await shouldUseMockData(request)) {
+      const role = await getDebugRoleFromRequest(request);
+      if (role !== 'vendor') {
+        return NextResponse.json(
+          { error: 'Vendor organization required' },
+          { status: 403 }
+        );
+      }
+
+      const deleted = deleteMockMenuItem(params.menuId);
+      if (!deleted) {
+        return NextResponse.json(
+          { error: 'Menu item not found' },
+          { status: 404 }
+        );
+      }
+
+      return NextResponse.json({ success: true });
+    }
+
     await connectDB();
     
     const organization = await getCurrentOrganization();

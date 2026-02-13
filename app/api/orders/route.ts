@@ -6,6 +6,8 @@ import MenuItem from '@/lib/models/menu.model';
 import { getCurrentOrganization } from '@/lib/utils/clerk';
 import { acquireOrderLock, releaseOrderLock } from '@/lib/redis';
 import { createPaymentIntent, calculatePlatformFee } from '@/lib/utils/stripe';
+import { shouldUseMockData, getDebugRoleFromRequest } from '@/lib/utils/debug';
+import { createMockOrder, getMockOrders } from '@/lib/mock-data';
 
 const orderSchema = z.object({
   items: z.array(
@@ -22,6 +24,28 @@ const orderSchema = z.object({
  */
 export async function POST(request: NextRequest) {
   try {
+    if (await shouldUseMockData(request)) {
+      const body = await request.json();
+      const validatedData = orderSchema.parse(body);
+      const order = createMockOrder(validatedData.items);
+
+      if (!order) {
+        return NextResponse.json(
+          { error: 'No valid menu items found' },
+          { status: 400 }
+        );
+      }
+
+      return NextResponse.json({
+        orderId: order._id,
+        paymentIntentId: order.paymentIntentId,
+        clientSecret: `debug_${order.paymentIntentId}`,
+        totalAmount: order.totalAmount,
+        platformFee: order.platformFee,
+        subOrders: order.subOrders,
+      });
+    }
+
     await connectDB();
     
     const organization = await getCurrentOrganization();
@@ -166,6 +190,23 @@ export async function POST(request: NextRequest) {
  */
 export async function GET(request: NextRequest) {
   try {
+    if (await shouldUseMockData(request)) {
+      const role = await getDebugRoleFromRequest(request);
+      const searchParams = request.nextUrl.searchParams;
+      const status = searchParams.get('status');
+      const orderId = searchParams.get('orderId') || undefined;
+      const vendorId = searchParams.get('debugVendorId') || undefined;
+      const limit = parseInt(searchParams.get('limit') || '50', 10);
+
+      let orders = getMockOrders(role, { orderId, vendorId });
+
+      if (status) {
+        orders = orders.filter((order) => order.status === status);
+      }
+
+      return NextResponse.json({ orders: orders.slice(0, limit) });
+    }
+
     await connectDB();
     
     const organization = await getCurrentOrganization();

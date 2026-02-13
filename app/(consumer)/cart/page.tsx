@@ -7,6 +7,7 @@ import { Card } from '@/components/ui/Card';
 import { MobileHeader } from '@/components/layout/MobileHeader';
 import { Header } from '@/components/layout/Header';
 import { loadStripe } from '@stripe/stripe-js';
+import { apiFetch } from '@/lib/utils/api';
 
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || '');
 
@@ -65,7 +66,7 @@ export default function CartPage() {
         quantity: item.quantity,
       }));
 
-      const response = await fetch('/api/orders', {
+      const response = await apiFetch('/api/orders', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -86,6 +87,12 @@ export default function CartPage() {
         if (stripe) {
           // Handle Stripe payment confirmation
           // This would typically use Stripe Elements or Checkout
+          localStorage.removeItem('cart');
+          setCart([]);
+          router.push(`/orders/${orderData.orderId}`);
+        } else {
+          localStorage.removeItem('cart');
+          setCart([]);
           router.push(`/orders/${orderData.orderId}`);
         }
       }
@@ -112,7 +119,7 @@ export default function CartPage() {
   }, {} as Record<string, { vendorName: string; items: CartItem[] }>);
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen app-surface">
       {/* Mobile Header */}
       <MobileHeader title="Cart" showBack onBack={() => router.back()} />
       
@@ -121,12 +128,12 @@ export default function CartPage() {
         <Header title="Shopping Cart" />
       </div>
 
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <h1 className="text-2xl font-bold mb-6 hidden md:block">Shopping Cart</h1>
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 app-grid animate-fade-up">
+        <h1 className="text-3xl font-semibold mb-6 hidden md:block">Shopping Cart</h1>
 
         {cart.length === 0 ? (
           <Card className="text-center py-12">
-            <p className="text-gray-500 mb-4">Your cart is empty</p>
+            <p className="text-slate-500 mb-4">Your cart is empty</p>
             <Button onClick={() => router.push('/marketplace')}>
               Browse Marketplace
             </Button>
@@ -135,46 +142,46 @@ export default function CartPage() {
           <div className="space-y-6">
             {Object.entries(itemsByVendor).map(([vendorId, vendorData]) => (
               <Card key={vendorId}>
-                <h2 className="text-lg font-semibold mb-4">{vendorData.vendorName}</h2>
+                <h2 className="text-lg font-semibold mb-4 text-slate-900">{vendorData.vendorName}</h2>
                 <div className="space-y-4">
                   {vendorData.items.map((item) => (
                     <div
                       key={item.id}
-                      className="flex items-center justify-between border-b border-gray-200 pb-4 last:border-b-0"
+                      className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-4 last:border-b-0"
                     >
                       <div className="flex-1">
-                        <h3 className="font-medium">{item.name}</h3>
-                        <p className="text-sm text-gray-600">
+                        <h3 className="font-medium text-slate-900">{item.name}</h3>
+                        <p className="text-sm text-slate-500">
                           ${(item.price / 100).toFixed(2)} each
                         </p>
                       </div>
                       
                       <div className="flex items-center gap-4">
-                        <div className="flex items-center border border-gray-300 rounded-lg">
+                        <div className="flex items-center border border-slate-200 rounded-xl bg-white/80">
                           <button
                             onClick={() => handleQuantityChange(item.id, -1)}
-                            className="px-3 py-1 text-gray-600 hover:bg-gray-100"
+                            className="px-3 py-1 text-slate-600 hover:bg-slate-100 rounded-l-xl"
                           >
                             −
                           </button>
-                          <span className="px-4 py-1 text-sm font-medium">
+                          <span className="px-4 py-1 text-sm font-semibold text-slate-700">
                             {item.quantity}
                           </span>
                           <button
                             onClick={() => handleQuantityChange(item.id, 1)}
-                            className="px-3 py-1 text-gray-600 hover:bg-gray-100"
+                            className="px-3 py-1 text-slate-600 hover:bg-slate-100 rounded-r-xl"
                           >
                             +
                           </button>
                         </div>
                         
-                        <span className="font-semibold w-20 text-right">
+                        <span className="font-semibold w-20 text-right text-slate-900">
                           ${((item.price * item.quantity) / 100).toFixed(2)}
                         </span>
                         
                         <button
                           onClick={() => handleRemoveItem(item.id)}
-                          className="text-red-600 hover:text-red-800 ml-2"
+                          className="text-rose-600 hover:text-rose-800 ml-2"
                         >
                           ×
                         </button>
@@ -188,8 +195,8 @@ export default function CartPage() {
             {/* Total and Checkout */}
             <Card>
               <div className="flex justify-between items-center mb-6">
-                <span className="text-xl font-semibold">Total Price</span>
-                <span className="text-3xl font-bold">${(totalPrice / 100).toFixed(2)}</span>
+                <span className="text-xl font-semibold text-slate-700">Total Price</span>
+                <span className="text-3xl font-semibold text-slate-900">${(totalPrice / 100).toFixed(2)}</span>
               </div>
               <Button
                 onClick={handlePlaceOrder}

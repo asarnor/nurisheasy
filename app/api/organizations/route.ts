@@ -2,11 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import connectDB from '@/lib/mongodb';
 import Organization from '@/lib/models/organization.model';
-import { getCurrentOrganization, requireRole } from '@/lib/utils/clerk';
+import { getCurrentOrganization } from '@/lib/utils/clerk';
 import { geocodeAddress } from '@/lib/utils/geospatial';
+import { shouldUseMockData, getDebugRoleFromRequest } from '@/lib/utils/debug';
+import { getMockOrganization, updateMockOrganization } from '@/lib/mock-data';
 
 const updateOrganizationSchema = z.object({
   name: z.string().optional(),
+  type: z.enum(['consumer', 'vendor']).optional(),
   address: z.object({
     street: z.string(),
     city: z.string(),
@@ -24,8 +27,30 @@ const updateOrganizationSchema = z.object({
  * GET /api/organizations
  * Get current organization
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    if (await shouldUseMockData(request)) {
+      const role = await getDebugRoleFromRequest(request);
+      const organization = getMockOrganization(role);
+
+      if (!organization) {
+        return NextResponse.json(
+          { error: 'Organization not found' },
+          { status: 404 }
+        );
+      }
+
+      return NextResponse.json({
+        organization: {
+          id: organization.id,
+          name: organization.name,
+          type: organization.type === 'admin' ? 'consumer' : organization.type,
+          safetyProfile: organization.safetyProfile,
+          address: organization.address,
+        },
+      });
+    }
+
     await connectDB();
     
     const organization = await getCurrentOrganization();
@@ -61,6 +86,31 @@ export async function GET() {
  */
 export async function PATCH(request: NextRequest) {
   try {
+    if (await shouldUseMockData(request)) {
+      const role = await getDebugRoleFromRequest(request);
+      const body = await request.json();
+      const validatedData = updateOrganizationSchema.parse(body);
+
+      const organization = updateMockOrganization(role, validatedData);
+
+      if (!organization) {
+        return NextResponse.json(
+          { error: 'Organization not found' },
+          { status: 404 }
+        );
+      }
+
+      return NextResponse.json({
+        organization: {
+          id: organization.id,
+          name: organization.name,
+          type: organization.type === 'admin' ? 'consumer' : organization.type,
+          safetyProfile: organization.safetyProfile,
+          address: organization.address,
+        },
+      });
+    }
+
     await connectDB();
     
     const organization = await getCurrentOrganization();
@@ -78,6 +128,10 @@ export async function PATCH(request: NextRequest) {
     // Update fields
     if (validatedData.name) {
       organization.name = validatedData.name;
+    }
+
+    if (validatedData.type) {
+      organization.type = validatedData.type;
     }
 
     if (validatedData.address) {

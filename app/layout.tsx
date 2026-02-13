@@ -1,9 +1,16 @@
 import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
+import { Fraunces, Manrope } from 'next/font/google';
 import { ClerkProvider } from '@clerk/nextjs';
 import './globals.css';
 
-const inter = Inter({ subsets: ['latin'] });
+const manrope = Manrope({
+  subsets: ['latin'],
+  variable: '--font-manrope',
+});
+const fraunces = Fraunces({
+  subsets: ['latin'],
+  variable: '--font-fraunces',
+});
 
 export const metadata: Metadata = {
   title: 'SafePlate - B2B Food Marketplace',
@@ -23,7 +30,7 @@ export default function RootLayout({
       afterSignUpUrl="/"
     >
       <html lang="en">
-        <body className={inter.className}>{children}</body>
+        <body className={`${manrope.variable} ${fraunces.variable} font-sans`}>{children}</body>
       </html>
     </ClerkProvider>
   );

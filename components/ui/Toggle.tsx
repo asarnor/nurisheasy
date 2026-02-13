@@ -15,11 +15,11 @@ export const Toggle: React.FC<ToggleProps> = ({
 }) => {
   return (
     <div className={`flex items-center justify-between ${className}`}>
-      <span className="text-sm font-medium text-gray-700">{label}</span>
+      <span className="text-sm font-semibold text-slate-700">{label}</span>
       <button
         type="button"
-        className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 ${
-          checked ? 'bg-green-600' : 'bg-gray-200'
+        className={`relative inline-flex h-7 w-12 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 ${
+          checked ? 'bg-emerald-600' : 'bg-slate-200'
         }`}
         onClick={() => onChange(!checked)}
         role="switch"

@@ -32,6 +32,39 @@ export async function getCurrentUserWithOrg() {
 }
 
 /**
+ * Attempt to resolve an organization from Clerk memberships when orgId is missing.
+ */
+export async function getOrganizationFromMemberships() {
+  const user = await currentUser();
+  const memberships =
+    (user as any)?.organizationMemberships?.data ||
+    (user as any)?.organizationMemberships ||
+    [];
+
+  const membershipList = Array.isArray(memberships) ? memberships : [];
+  const preferredMembership =
+    membershipList.find((membership) => membership?.role === 'org:admin') ||
+    membershipList[0] ||
+    null;
+  const clerkOrgId = preferredMembership?.organization?.id || null;
+
+  if (!clerkOrgId) {
+    return {
+      organization: null,
+      orgRole: preferredMembership?.role || null,
+    };
+  }
+
+  await connectDB();
+  const organization = await Organization.findOne({ clerkOrgId });
+
+  return {
+    organization,
+    orgRole: preferredMembership?.role || null,
+  };
+}
+
+/**
  * Check if user has required role
  */
 export async function requireRole(requiredRole: 'consumer' | 'vendor' | 'admin') {
