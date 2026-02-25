@@ -2,13 +2,18 @@ import type { ReactNode } from 'react';
 import { auth } from '@clerk/nextjs/server';
 import { redirect } from 'next/navigation';
 import { getCurrentOrganization, getOrganizationFromMemberships } from '@/lib/utils/clerk';
-import { getTestUserRole } from '@/lib/utils/debug';
+import { getTestUserRole, isDebugEnvEnabled } from '@/lib/utils/debug';
 
 export default async function ConsumerLayout({
   children,
 }: {
   children: ReactNode;
 }) {
+  // In debug mode, skip auth and render children directly
+  if (isDebugEnvEnabled()) {
+    return <>{children}</>;
+  }
+
   const { userId, orgRole } = await auth();
 
   if (!userId) {
