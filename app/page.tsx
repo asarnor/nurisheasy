@@ -136,9 +136,7 @@ export default async function Home() {
     
     // Check organization type
     if (organization) {
-      if (organization.type === 'admin') {
-        redirect('/admin/dashboard');
-      } else if (organization.type === 'vendor') {
+      if (organization.type === 'vendor') {
         redirect('/vendor/kds');
       } else if (organization.type === 'consumer') {
         redirect('/marketplace');

@@ -1,5 +1,5 @@
 'use client';
 
-import VendorMenuPage from '@/app/(vendor)/menu/page';
+import VendorMenuPage from '@/app/(vendor)/menu/VendorMenuView';
 
 export default VendorMenuPage;

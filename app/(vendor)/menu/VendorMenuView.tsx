@@ -81,8 +81,9 @@ export default function MenuEditorPage() {
           .filter(Boolean),
       };
 
-      const isEditing = Boolean(editingItem?._id);
-      const url = isEditing ? `/api/menus/${editingItem._id}` : '/api/menus';
+      const editingItemId = editingItem?._id;
+      const isEditing = Boolean(editingItemId);
+      const url = isEditing ? `/api/menus/${editingItemId}` : '/api/menus';
       const method = isEditing ? 'PATCH' : 'POST';
 
       const response = await apiFetch(url, {

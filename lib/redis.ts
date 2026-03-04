@@ -3,20 +3,45 @@ import { createClient } from 'redis';
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
 
 let redisClient: ReturnType<typeof createClient> | null = null;
+let redisConnectPromise: Promise<ReturnType<typeof createClient>> | null = null;
 
 export async function getRedisClient() {
   if (redisClient && redisClient.isOpen) {
     return redisClient;
   }
 
+  if (redisConnectPromise) {
+    return redisConnectPromise;
+  }
+
   redisClient = createClient({
     url: REDIS_URL,
+    socket: {
+      connectTimeout: 1500,
+      reconnectStrategy: (retries) => {
+        // Fail fast so health/debug endpoints don't hang for extended retry loops.
+        if (retries >= 2) {
+          return new Error('Redis connection failed');
+        }
+        return 150 * (retries + 1);
+      },
+    },
   });
 
   redisClient.on('error', (err) => console.error('Redis Client Error', err));
 
-  await redisClient.connect();
-  return redisClient;
+  redisConnectPromise = redisClient
+    .connect()
+    .then(() => redisClient as ReturnType<typeof createClient>)
+    .catch((error) => {
+      redisClient = null;
+      throw error;
+    })
+    .finally(() => {
+      redisConnectPromise = null;
+    });
+
+  return redisConnectPromise;
 }
 
 /**

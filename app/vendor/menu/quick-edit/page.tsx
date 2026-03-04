@@ -1,5 +1,5 @@
 'use client';
 
-import VendorQuickEditPage from '@/app/(vendor)/menu/quick-edit/page';
+import VendorQuickEditPage from '@/app/(vendor)/menu/quick-edit/VendorQuickEditView';
 
 export default VendorQuickEditPage;
