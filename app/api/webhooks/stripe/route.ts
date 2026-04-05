@@ -3,10 +3,7 @@ import { headers } from 'next/headers';
 import Stripe from 'stripe';
 import connectDB from '@/lib/mongodb';
 import Order from '@/lib/models/order.model';
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2023-10-16',
-});
+import { stripe } from '@/lib/utils/stripe';
 
 /**
  * POST /api/webhooks/stripe

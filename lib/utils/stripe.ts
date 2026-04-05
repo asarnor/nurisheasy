@@ -1,10 +1,17 @@
 import Stripe from 'stripe';
 
-if (!process.env.STRIPE_SECRET_KEY) {
+// Allow local dev without Stripe keys (API routes that call Stripe will fail until keys are set)
+const stripeSecretKey =
+  process.env.STRIPE_SECRET_KEY ||
+  (process.env.NODE_ENV !== 'production'
+    ? 'sk_test_placeholder_set_STRIPE_SECRET_KEY_in_env'
+    : '');
+
+if (!stripeSecretKey) {
   throw new Error('STRIPE_SECRET_KEY is not set');
 }
 
-export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
+export const stripe = new Stripe(stripeSecretKey, {
   apiVersion: '2023-10-16',
 });
 

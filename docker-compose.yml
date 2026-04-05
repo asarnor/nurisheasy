@@ -1,0 +1,26 @@
+# Local MongoDB + Redis for development
+# Usage: docker compose up -d
+# Then set MONGO_URI and REDIS_URL in .env.local (see .env.local.example)
+
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - safeplate_mongo_data:/data/db
+    environment:
+      MONGO_INITDB_DATABASE: safeplate_dev
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - safeplate_redis_data:/data
+
+volumes:
+  safeplate_mongo_data:
+  safeplate_redis_data:

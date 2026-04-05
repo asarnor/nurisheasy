@@ -90,7 +90,7 @@ export default async function Home() {
 
           <div className="text-center space-y-2">
             <p className="text-sm text-gray-500">
-              Don't have an account?{' '}
+              Don&apos;t have an account?{' '}
               <a href="/sign-up?role=consumer" className="text-green-600 hover:text-green-700 font-semibold">
                 Sign up as Group Home
               </a>
