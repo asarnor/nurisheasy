@@ -34,6 +34,9 @@ export interface MockMenuItem {
   ingredients: string[];
   imageUrl?: string;
   category?: string;
+  stockQuantity?: number | null;
+  servingSizeOz?: number | null;
+  maxPortionsPerOrder?: number | null;
 }
 
 export interface MockOrderItem {
@@ -177,6 +180,9 @@ const createMockStore = (): MockStore => {
       allergenTags: ['DAIRY'],
       ingredients: ['chicken', 'barley', 'lemon', 'greens', 'garlic'],
       category: 'Bowls',
+      stockQuantity: 30,
+      servingSizeOz: 12,
+      maxPortionsPerOrder: 15,
     },
     {
       id: 'menu_harbor_2',
@@ -189,6 +195,8 @@ const createMockStore = (): MockStore => {
       allergenTags: [],
       ingredients: ['carrot', 'tomato', 'pepper', 'beans'],
       category: 'Stews',
+      stockQuantity: 25,
+      servingSizeOz: 10,
     },
     {
       id: 'menu_harbor_3',
@@ -225,6 +233,9 @@ const createMockStore = (): MockStore => {
       allergenTags: ['FISH', 'SESAME'],
       ingredients: ['salmon', 'ginger', 'rice', 'bok choy'],
       category: 'Bento',
+      stockQuantity: 15,
+      servingSizeOz: 14,
+      maxPortionsPerOrder: 10,
     },
     {
       id: 'menu_cedar_2',

@@ -7,7 +7,16 @@ import { getCurrentOrganization } from '@/lib/utils/clerk';
 import { acquireOrderLock, releaseOrderLock } from '@/lib/redis';
 import { createPaymentIntent, calculatePlatformFee } from '@/lib/utils/stripe';
 import { shouldUseMockData, getDebugRoleFromRequest } from '@/lib/utils/debug';
-import { createMockOrder, getMockOrders } from '@/lib/mock-data';
+import { createMockOrder, getMockOrders, getMockStore } from '@/lib/mock-data';
+import {
+  getActivePlatformRules,
+  DEFAULT_RULES,
+  validateOrderMinimums,
+  validatePortionProtocols,
+  validateDeliveryTiming,
+  validateInventory,
+  type RuleViolation,
+} from '@/lib/platform-rules';
 
 const orderSchema = z.object({
   items: z.array(
@@ -16,6 +25,8 @@ const orderSchema = z.object({
       quantity: z.number().int().positive(),
     })
   ),
+  portionJustification: z.string().optional(),
+  requestedDeliveryTime: z.string().datetime().optional(),
 });
 
 /**
@@ -27,12 +38,52 @@ export async function POST(request: NextRequest) {
     if (await shouldUseMockData(request)) {
       const body = await request.json();
       const validatedData = orderSchema.parse(body);
+
+      // Validate against platform rules in mock mode
+      const rules = DEFAULT_RULES;
+      const violations: RuleViolation[] = [];
+
+      // Delivery timing checks
+      violations.push(...validateDeliveryTiming(
+        rules.deliveryTiming,
+        validatedData.requestedDeliveryTime ? new Date(validatedData.requestedDeliveryTime) : undefined,
+      ));
+
+      // Portion protocol checks
+      const store = getMockStore();
+      const itemsWithNames = validatedData.items.map((item) => {
+        const menuItem = store.menuItems.find((m) => m.id === item.menuItemId);
+        return { menuItemId: item.menuItemId, name: menuItem?.name || 'Unknown', quantity: item.quantity };
+      });
+      violations.push(...validatePortionProtocols(rules.portionProtocols, itemsWithNames, validatedData.portionJustification));
+
+      if (violations.length > 0) {
+        return NextResponse.json(
+          { error: 'Platform rule violations', violations },
+          { status: 400 },
+        );
+      }
+
       const order = createMockOrder(validatedData.items);
 
       if (!order) {
         return NextResponse.json(
           { error: 'No valid menu items found' },
           { status: 400 }
+        );
+      }
+
+      // Validate order minimums after totals are calculated
+      const vendorSubTotals = order.subOrders.map((sub) => ({
+        vendorId: sub.vendorId,
+        vendorName: sub.vendorName,
+        total: sub.vendorTotal,
+      }));
+      const minimumViolations = validateOrderMinimums(rules.contractMinimums, order.totalAmount, vendorSubTotals);
+      if (minimumViolations.length > 0) {
+        return NextResponse.json(
+          { error: 'Platform rule violations', violations: minimumViolations },
+          { status: 400 },
         );
       }
 
@@ -60,6 +111,35 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const validatedData = orderSchema.parse(body);
 
+    // Load platform rules for validation
+    const platformRules = await getActivePlatformRules();
+    const allViolations: RuleViolation[] = [];
+
+    // Validate delivery timing
+    allViolations.push(...validateDeliveryTiming(
+      platformRules.deliveryTiming,
+      validatedData.requestedDeliveryTime ? new Date(validatedData.requestedDeliveryTime) : undefined,
+    ));
+
+    // Validate portion protocols (names resolved after menu lookup below)
+    const itemsForPortionCheck = validatedData.items.map((item) => ({
+      menuItemId: item.menuItemId,
+      name: item.menuItemId, // placeholder — replaced after menu lookup
+      quantity: item.quantity,
+    }));
+    allViolations.push(...validatePortionProtocols(
+      platformRules.portionProtocols,
+      itemsForPortionCheck,
+      validatedData.portionJustification,
+    ));
+
+    if (allViolations.length > 0) {
+      return NextResponse.json(
+        { error: 'Platform rule violations', violations: allViolations },
+        { status: 400 },
+      );
+    }
+
     // Acquire lock to prevent double-ordering
     const lockAcquired = await acquireOrderLock(organization._id.toString(), 30);
     if (!lockAcquired) {
@@ -79,6 +159,30 @@ export async function POST(request: NextRequest) {
 
       if (menuItems.length !== menuItemIds.length) {
         throw new Error('Some menu items are not available');
+      }
+
+      // Validate inventory for each item
+      const inventoryViolations: RuleViolation[] = [];
+      for (const reqItem of validatedData.items) {
+        const menuItem = menuItems.find((mi) => mi._id.toString() === reqItem.menuItemId);
+        if (!menuItem) continue;
+        inventoryViolations.push(...validateInventory(
+          platformRules.inventory,
+          {
+            id: menuItem._id.toString(),
+            name: menuItem.name,
+            stockQuantity: menuItem.stockQuantity,
+            lastVerifiedAt: menuItem.lastVerifiedAt,
+          },
+          reqItem.quantity,
+        ));
+      }
+      if (inventoryViolations.length > 0) {
+        await releaseOrderLock(organization._id.toString());
+        return NextResponse.json(
+          { error: 'Inventory rule violations', violations: inventoryViolations },
+          { status: 400 },
+        );
       }
 
       // Group items by vendor
@@ -128,7 +232,31 @@ export async function POST(request: NextRequest) {
         totalAmount += vendorTotal;
       }
 
-      const platformFee = calculatePlatformFee(totalAmount);
+      // Validate order and vendor minimums
+      const vendorSubTotals = subOrders.map((sub) => {
+        const vendor = menuItems.find((mi) => mi.vendorId._id.toString() === sub.vendorId)?.vendorId as any;
+        return {
+          vendorId: sub.vendorId,
+          vendorName: vendor?.name || 'Vendor',
+          total: sub.vendorTotal,
+        };
+      });
+      const minimumViolations = validateOrderMinimums(
+        platformRules.contractMinimums,
+        totalAmount,
+        vendorSubTotals,
+      );
+      if (minimumViolations.length > 0) {
+        await releaseOrderLock(organization._id.toString());
+        return NextResponse.json(
+          { error: 'Order minimum violations', violations: minimumViolations },
+          { status: 400 },
+        );
+      }
+
+      // Use configurable platform fee instead of hardcoded 10%
+      const feePercent = platformRules.platformFeePercent ?? 10;
+      const platformFee = Math.round(totalAmount * (feePercent / 100));
 
       // Create payment intent
       const paymentIntent = await createPaymentIntent(totalAmount, {
@@ -147,6 +275,16 @@ export async function POST(request: NextRequest) {
       });
 
       await order.save();
+
+      // Decrement stock quantities for items that track inventory
+      if (platformRules.inventory.trackStock) {
+        for (const reqItem of validatedData.items) {
+          await MenuItem.updateOne(
+            { _id: reqItem.menuItemId, stockQuantity: { $ne: null } },
+            { $inc: { stockQuantity: -reqItem.quantity } },
+          );
+        }
+      }
 
       return NextResponse.json({
         orderId: order._id,

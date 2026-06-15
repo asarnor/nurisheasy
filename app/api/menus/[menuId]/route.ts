@@ -15,6 +15,9 @@ const updateMenuItemSchema = z.object({
   ingredients: z.array(z.string()).optional(),
   imageUrl: z.string().optional(),
   category: z.string().optional(),
+  stockQuantity: z.number().int().min(0).nullable().optional(),
+  servingSizeOz: z.number().min(0).nullable().optional(),
+  maxPortionsPerOrder: z.number().int().min(1).nullable().optional(),
 });
 
 /**
@@ -101,6 +104,9 @@ export async function PATCH(
         ingredients: menuItem.ingredients,
         imageUrl: menuItem.imageUrl,
         category: menuItem.category,
+        stockQuantity: menuItem.stockQuantity ?? null,
+        servingSizeOz: menuItem.servingSizeOz ?? null,
+        maxPortionsPerOrder: menuItem.maxPortionsPerOrder ?? null,
       },
     });
   } catch (error) {

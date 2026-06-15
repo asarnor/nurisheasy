@@ -7,7 +7,7 @@ import { isDebugClient } from '@/lib/utils/debug-client';
 interface AdminShellProps {
   title: string;
   subtitle?: string;
-  active: 'dashboard' | 'triage' | 'users';
+  active: 'dashboard' | 'triage' | 'users' | 'platform-rules';
   actions?: React.ReactNode;
   children: React.ReactNode;
 }
@@ -16,6 +16,7 @@ const navItems = [
   { id: 'dashboard', label: 'Dashboard', href: '/admin/dashboard' },
   { id: 'triage', label: 'Triage', href: '/admin/triage' },
   { id: 'users', label: 'Users', href: '/admin/users' },
+  { id: 'platform-rules', label: 'Platform Rules', href: '/admin/platform-rules' },
 ];
 
 export const AdminShell: React.FC<AdminShellProps> = ({
