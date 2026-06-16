@@ -45,7 +45,7 @@ export const AdminShell: React.FC<AdminShellProps> = ({
                   )}
                 </div>
               </div>
-              <UserButton afterSignOutUrl="/sign-in" />
+              {!debugEnabled && <UserButton afterSignOutUrl="/sign-in" />}
             </div>
             <nav className="space-y-2">
               {navItems.map((item) => (
@@ -85,7 +85,7 @@ export const AdminShell: React.FC<AdminShellProps> = ({
                   )}
                 </div>
               </div>
-              <UserButton afterSignOutUrl="/sign-in" />
+              {!debugEnabled && <UserButton afterSignOutUrl="/sign-in" />}
             </div>
             <div className="flex gap-2 overflow-x-auto px-4 pb-4">
               {navItems.map((item) => (
