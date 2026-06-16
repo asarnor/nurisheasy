@@ -4,8 +4,8 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
-import { MobileHeader } from '@/components/layout/MobileHeader';
-import { Header } from '@/components/layout/Header';
+import { VendorShell } from '@/components/layout/VendorShell';
+import { vendorPath } from '@/lib/utils/debug-client';
 import { apiFetch } from '@/lib/utils/api';
 
 interface Order {
@@ -82,17 +82,12 @@ export default function VendorOrdersPage() {
     order.subOrders.find((subOrder) => subOrder.vendorId) || order.subOrders[0];
 
   return (
-    <div className="min-h-screen app-surface">
-      {/* Mobile Header */}
-      <MobileHeader title="Orders" />
-      
-      {/* Desktop Header */}
-      <div className="hidden md:block">
-        <Header title="Order Management" />
-      </div>
-
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-24 md:pb-8 app-grid animate-fade-up">
-        <h1 className="text-3xl font-semibold mb-6 hidden md:block">Order Management</h1>
+    <VendorShell
+      active="orders"
+      title="Order Management"
+      subtitle="Track active and archived orders."
+    >
+      <div className="max-w-4xl mx-auto">
 
         {/* Tabs */}
         <div className="flex border-b border-slate-200 mb-6">
@@ -134,7 +129,7 @@ export default function VendorOrdersPage() {
               return (
                 <Card
                   key={order._id}
-                  onClick={() => router.push(`/vendor/orders/${order._id}`)}
+                  onClick={() => router.push(vendorPath(`/vendor/orders/${order._id}`))}
                   className="cursor-pointer"
                 >
                   <div className="flex items-center justify-between">
@@ -159,33 +154,6 @@ export default function VendorOrdersPage() {
           </div>
         )}
       </div>
-
-      {/* Mobile Bottom Navigation */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur border-t border-slate-200 md:hidden">
-        <div className="flex justify-around py-2">
-          <button
-            onClick={() => router.push('/vendor/orders')}
-            className="flex flex-col items-center p-2 text-emerald-600"
-          >
-            <span className="text-2xl">📦</span>
-            <span className="text-xs">Orders</span>
-          </button>
-          <button
-            onClick={() => router.push('/vendor/menu')}
-            className="flex flex-col items-center p-2 text-slate-600"
-          >
-            <span className="text-2xl">📋</span>
-            <span className="text-xs">Menu</span>
-          </button>
-          <button
-            onClick={() => router.push('/vendor/settings')}
-            className="flex flex-col items-center p-2 text-slate-600"
-          >
-            <span className="text-2xl">⚙️</span>
-            <span className="text-xs">Settings</span>
-          </button>
-        </div>
-      </nav>
-    </div>
+    </VendorShell>
   );
 }

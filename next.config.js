@@ -1,6 +1,15 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  images: {
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: 'image.pollinations.ai',
+        pathname: '/prompt/**',
+      },
+    ],
+  },
   // Environment variables are automatically available in Next.js
   // NEXT_PUBLIC_* variables are exposed to the browser
   // Other variables are only available server-side

@@ -22,3 +22,6 @@ export const withDebugParams = (url: string, role?: DebugRole) => {
 
   return `${resolved.pathname}${resolved.search}`;
 };
+
+export const vendorPath = (path: string) =>
+  isDebugClient() ? `${path}?debug=1&debugRole=vendor` : path;

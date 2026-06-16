@@ -4,7 +4,14 @@ import connectDB from '@/lib/mongodb';
 import MenuItem from '@/lib/models/menu.model';
 import { getCurrentOrganization } from '@/lib/utils/clerk';
 import { shouldUseMockData, getDebugRoleFromRequest } from '@/lib/utils/debug';
-import { deleteMockMenuItem, getMockVendorId, updateMockMenuItem } from '@/lib/mock-data';
+import { deleteMockMenuItem, getMockMenuItemById, getMockVendorId, updateMockMenuItem } from '@/lib/mock-data';
+import {
+  maybeRefreshGeneratedImage,
+  resolveMenuItemImageUrl,
+} from '@/lib/menu-item-images';
+import { normalizeMealCategoriesInput } from '@/lib/meal-categories';
+
+const mealCategorySchema = z.enum(['breakfast', 'lunch', 'dinner']);
 
 const updateMenuItemSchema = z.object({
   name: z.string().optional(),
@@ -14,6 +21,7 @@ const updateMenuItemSchema = z.object({
   allergenTags: z.array(z.string()).optional(),
   ingredients: z.array(z.string()).optional(),
   imageUrl: z.string().optional(),
+  mealCategories: z.array(mealCategorySchema).min(1).optional(),
   category: z.string().optional(),
   stockQuantity: z.number().int().min(0).nullable().optional(),
   servingSizeOz: z.number().min(0).nullable().optional(),
@@ -41,9 +49,25 @@ export async function PATCH(
       const body = await request.json();
       const validatedData = updateMenuItemSchema.parse(body);
       const vendorId = getMockVendorId();
+      const existing = getMockMenuItemById(params.menuId);
+
+      if (!existing) {
+        return NextResponse.json(
+          { error: 'Menu item not found' },
+          { status: 404 }
+        );
+      }
+
+      const nextImageUrl = maybeRefreshGeneratedImage(existing, validatedData);
       const menuItem = updateMockMenuItem(params.menuId, {
         ...validatedData,
         vendorId,
+        ...(validatedData.mealCategories
+          ? {
+              mealCategories: normalizeMealCategoriesInput(validatedData.mealCategories),
+            }
+          : {}),
+        ...(nextImageUrl !== undefined ? { imageUrl: nextImageUrl } : {}),
       });
 
       if (!menuItem) {
@@ -53,7 +77,12 @@ export async function PATCH(
         );
       }
 
-      return NextResponse.json({ menuItem });
+      return NextResponse.json({
+        menuItem: {
+          ...menuItem,
+          displayImageUrl: resolveMenuItemImageUrl(menuItem, menuItem.id),
+        },
+      });
     }
 
     await connectDB();
@@ -87,26 +116,54 @@ export async function PATCH(
       );
     }
 
+    const nextImageUrl = maybeRefreshGeneratedImage(
+      {
+        id: menuItem._id.toString(),
+        name: menuItem.name,
+        description: menuItem.description,
+        ingredients: menuItem.ingredients,
+        mealCategories: menuItem.mealCategories,
+        category: menuItem.category,
+        imageUrl: menuItem.imageUrl,
+      },
+      validatedData
+    );
+
     // Update fields
     Object.assign(menuItem, validatedData);
+    if (validatedData.mealCategories) {
+      menuItem.mealCategories = normalizeMealCategoriesInput(validatedData.mealCategories);
+    }
+    if (nextImageUrl !== undefined) {
+      menuItem.imageUrl = nextImageUrl;
+    }
     menuItem.lastVerifiedAt = new Date();
     
     await menuItem.save();
 
+    const formatted = {
+      id: menuItem._id,
+      name: menuItem.name,
+      description: menuItem.description,
+      price: menuItem.price,
+      isAvailable: menuItem.isAvailable,
+      allergenTags: menuItem.allergenTags,
+      ingredients: menuItem.ingredients,
+      imageUrl: menuItem.imageUrl,
+      mealCategories: menuItem.mealCategories,
+      category: menuItem.category,
+      stockQuantity: menuItem.stockQuantity ?? null,
+      servingSizeOz: menuItem.servingSizeOz ?? null,
+      maxPortionsPerOrder: menuItem.maxPortionsPerOrder ?? null,
+    };
+
     return NextResponse.json({
       menuItem: {
-        id: menuItem._id,
-        name: menuItem.name,
-        description: menuItem.description,
-        price: menuItem.price,
-        isAvailable: menuItem.isAvailable,
-        allergenTags: menuItem.allergenTags,
-        ingredients: menuItem.ingredients,
-        imageUrl: menuItem.imageUrl,
-        category: menuItem.category,
-        stockQuantity: menuItem.stockQuantity ?? null,
-        servingSizeOz: menuItem.servingSizeOz ?? null,
-        maxPortionsPerOrder: menuItem.maxPortionsPerOrder ?? null,
+        ...formatted,
+        displayImageUrl: resolveMenuItemImageUrl(
+          { ...formatted, imageUrl: menuItem.imageUrl },
+          menuItem._id.toString()
+        ),
       },
     });
   } catch (error) {

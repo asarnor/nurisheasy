@@ -6,6 +6,19 @@ import { getCurrentOrganization } from '@/lib/utils/clerk';
 import { isWithinDeliveryRadius } from '@/lib/utils/geospatial';
 import { shouldUseMockData, getDebugRoleFromRequest } from '@/lib/utils/debug';
 import { createMockMenuItem, getMockMenuItems, getMockVendorId } from '@/lib/mock-data';
+import {
+  assignGeneratedImageIfNeeded,
+  resolveMenuItemImageUrl,
+} from '@/lib/menu-item-images';
+import {
+  isMealCategory,
+  itemMatchesMeal,
+  normalizeMealCategories,
+  normalizeMealCategoriesInput,
+  type MealCategory,
+} from '@/lib/meal-categories';
+
+const mealCategorySchema = z.enum(['breakfast', 'lunch', 'dinner']);
 
 const menuItemSchema = z.object({
   name: z.string().min(1),
@@ -15,11 +28,48 @@ const menuItemSchema = z.object({
   allergenTags: z.array(z.string()).optional(),
   ingredients: z.array(z.string()).optional(),
   imageUrl: z.string().optional(),
+  mealCategories: z.array(mealCategorySchema).min(1).optional(),
   category: z.string().optional(),
   stockQuantity: z.number().int().min(0).nullable().optional(),
   servingSizeOz: z.number().min(0).nullable().optional(),
   maxPortionsPerOrder: z.number().int().min(1).nullable().optional(),
 });
+
+const formatMenuItem = (item: any, organizationName?: string) => {
+  const id = item.id || item._id?.toString?.() || item._id;
+  const base = {
+    id,
+    _id: id,
+    vendorId: item.vendorId?._id || item.vendorId,
+    vendorName:
+      organizationName || item.vendorName || (item.vendorId as any)?.name || 'Unknown Vendor',
+    name: item.name,
+    description: item.description,
+    price: item.price,
+    allergenTags: item.allergenTags || [],
+    ingredients: item.ingredients || [],
+    imageUrl: item.imageUrl,
+    mealCategories: normalizeMealCategories(item),
+    category: item.category,
+    isAvailable: item.isAvailable,
+    stockQuantity: item.stockQuantity ?? null,
+    servingSizeOz: item.servingSizeOz ?? null,
+    maxPortionsPerOrder: item.maxPortionsPerOrder ?? null,
+  };
+
+  return {
+    ...base,
+    displayImageUrl: resolveMenuItemImageUrl(base, id),
+  };
+};
+
+const filterMenuItemsByMeal = <T extends { mealCategories?: string[] | null; category?: string | null }>(
+  items: T[],
+  meal?: string | null
+) => {
+  if (!meal || !isMealCategory(meal)) return items;
+  return items.filter((item) => itemMatchesMeal(item, meal as MealCategory));
+};
 
 /**
  * GET /api/menus
@@ -30,10 +80,15 @@ export async function GET(request: NextRequest) {
     if (await shouldUseMockData(request)) {
       const searchParams = request.nextUrl.searchParams;
       const vendorId = searchParams.get('vendorId') || undefined;
+      const meal = searchParams.get('meal');
       const role = await getDebugRoleFromRequest(request);
 
+      const items = getMockMenuItems(role, vendorId);
+      const filteredItems =
+        role === 'vendor' ? items : filterMenuItemsByMeal(items, meal);
+
       return NextResponse.json({
-        items: getMockMenuItems(role, vendorId),
+        items: filteredItems.map((item) => formatMenuItem(item)),
       });
     }
 
@@ -50,28 +105,14 @@ export async function GET(request: NextRequest) {
 
     const searchParams = request.nextUrl.searchParams;
     const vendorId = searchParams.get('vendorId');
+    const meal = searchParams.get('meal');
 
     if (organization.type === 'vendor') {
       const vendorScopeId = vendorId === 'current' || !vendorId ? organization._id : vendorId;
       const menuItems = await MenuItem.find({ vendorId: vendorScopeId });
 
       return NextResponse.json({
-        items: menuItems.map((item: any) => ({
-          id: item._id,
-          vendorId: item.vendorId,
-          vendorName: organization.name,
-          name: item.name,
-          description: item.description,
-          price: item.price,
-          allergenTags: item.allergenTags,
-          ingredients: item.ingredients,
-          imageUrl: item.imageUrl,
-          category: item.category,
-          isAvailable: item.isAvailable,
-          stockQuantity: item.stockQuantity ?? null,
-          servingSizeOz: item.servingSizeOz ?? null,
-          maxPortionsPerOrder: item.maxPortionsPerOrder ?? null,
-        })),
+        items: menuItems.map((item: any) => formatMenuItem(item, organization.name)),
       });
     }
 
@@ -91,6 +132,10 @@ export async function GET(request: NextRequest) {
     
     if (vendorId) {
       query.vendorId = vendorId;
+    }
+
+    if (meal && isMealCategory(meal)) {
+      query.mealCategories = meal;
     }
 
     let menuItems = await MenuItem.find(query).populate('vendorId', 'name address');
@@ -113,18 +158,9 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.json({
-      items: menuItems.map((item: any) => ({
-        id: item._id,
-        vendorId: item.vendorId?._id || item.vendorId,
-        vendorName: (item.vendorId as any)?.name || 'Unknown Vendor',
-        name: item.name,
-        description: item.description,
-        price: item.price,
-        allergenTags: item.allergenTags,
-        ingredients: item.ingredients,
-        imageUrl: item.imageUrl,
-        category: item.category,
-      })),
+      items: menuItems.map((item: any) =>
+        formatMenuItem(item, (item.vendorId as any)?.name)
+      ),
     });
   } catch (error) {
     console.error('Error fetching menus:', error);
@@ -153,7 +189,10 @@ export async function POST(request: NextRequest) {
       const body = await request.json();
       const validatedData = menuItemSchema.parse(body);
       const vendorId = getMockVendorId();
-      const menuItem = createMockMenuItem(vendorId, validatedData);
+      const menuItem = createMockMenuItem(vendorId, {
+        ...validatedData,
+        mealCategories: normalizeMealCategoriesInput(validatedData.mealCategories),
+      });
 
       if (!menuItem) {
         return NextResponse.json(
@@ -162,7 +201,9 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      return NextResponse.json({ item: menuItem });
+      return NextResponse.json({
+        item: formatMenuItem(menuItem),
+      });
     }
 
     await connectDB();
@@ -178,26 +219,20 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const validatedData = menuItemSchema.parse(body);
+    const withImage = assignGeneratedImageIfNeeded({
+      ...validatedData,
+      mealCategories: normalizeMealCategoriesInput(validatedData.mealCategories),
+    });
 
     const menuItem = await MenuItem.create({
-      ...validatedData,
+      ...withImage,
+      mealCategories: normalizeMealCategoriesInput(validatedData.mealCategories),
       vendorId: organization._id,
       lastVerifiedAt: new Date(),
     });
 
     return NextResponse.json({
-      item: {
-        id: menuItem._id,
-        vendorId: menuItem.vendorId,
-        name: menuItem.name,
-        description: menuItem.description,
-        price: menuItem.price,
-        isAvailable: menuItem.isAvailable,
-        allergenTags: menuItem.allergenTags,
-        ingredients: menuItem.ingredients,
-        imageUrl: menuItem.imageUrl,
-        category: menuItem.category,
-      },
+      item: formatMenuItem(menuItem, organization.name),
     });
   } catch (error) {
     console.error('Error creating menu item:', error);

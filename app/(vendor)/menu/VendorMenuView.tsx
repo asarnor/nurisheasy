@@ -1,13 +1,22 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Toggle } from '@/components/ui/Toggle';
 import { Input } from '@/components/ui/Input';
-import { Header } from '@/components/layout/Header';
-import { MobileHeader } from '@/components/layout/MobileHeader';
+import { VendorShell } from '@/components/layout/VendorShell';
+import { MealPeriodFilter, type MealPeriodView } from '@/components/consumer/MealPeriodFilter';
+import { MenuItemPhoto } from '@/components/vendor/MenuItemPhoto';
+import { isVendorUploadedImage } from '@/lib/menu-item-images';
+import {
+  DEFAULT_MEAL_CATEGORIES,
+  formatMealCategories,
+  itemMatchesMeal,
+  MEAL_CATEGORIES,
+  MEAL_CATEGORY_LABELS,
+  type MealCategory,
+} from '@/lib/meal-categories';
 import { apiFetch } from '@/lib/utils/api';
 
 interface MenuItem {
@@ -19,19 +28,36 @@ interface MenuItem {
   isAvailable: boolean;
   allergenTags: string[];
   ingredients: string[];
+  imageUrl?: string;
+  displayImageUrl?: string;
+  mealCategories?: MealCategory[];
+  category?: string;
 }
 
 export default function MenuEditorPage() {
-  const router = useRouter();
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [menuView, setMenuView] = useState<MealPeriodView>('all');
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null);
   const [formData, setFormData] = useState({
     name: '',
     description: '',
     price: '',
+    imageUrl: '',
     allergenTags: [] as string[],
     ingredients: '',
+    mealCategories: [...DEFAULT_MEAL_CATEGORIES] as MealCategory[],
+    isAvailable: true,
+  });
+
+  const resetForm = () => ({
+    name: '',
+    description: '',
+    price: '',
+    imageUrl: '',
+    allergenTags: [] as string[],
+    ingredients: '',
+    mealCategories: [...DEFAULT_MEAL_CATEGORIES] as MealCategory[],
     isAvailable: true,
   });
 
@@ -64,10 +90,32 @@ export default function MenuEditorPage() {
       name: item.name,
       description: item.description || '',
       price: (item.price / 100).toFixed(2),
+      imageUrl: isVendorUploadedImage(item.imageUrl) ? item.imageUrl || '' : '',
       allergenTags: item.allergenTags,
       ingredients: item.ingredients.join(', '),
+      mealCategories: item.mealCategories?.length
+        ? item.mealCategories
+        : [...DEFAULT_MEAL_CATEGORIES],
       isAvailable: item.isAvailable,
     });
+  };
+
+  const toggleMealCategory = (meal: MealCategory) => {
+    setFormData((prev) => {
+      const selected = prev.mealCategories.includes(meal)
+        ? prev.mealCategories.filter((entry) => entry !== meal)
+        : [...prev.mealCategories, meal];
+
+      return {
+        ...prev,
+        mealCategories: selected.length ? selected : [...DEFAULT_MEAL_CATEGORIES],
+      };
+    });
+  };
+
+  const openNewItemForm = () => {
+    setEditingItem({} as MenuItem);
+    setFormData(resetForm());
   };
 
   const handleSave = async () => {
@@ -75,6 +123,8 @@ export default function MenuEditorPage() {
       const payload = {
         ...formData,
         price: Math.round(parseFloat(formData.price) * 100),
+        imageUrl: formData.imageUrl.trim() || undefined,
+        mealCategories: formData.mealCategories,
         ingredients: formData.ingredients
           .split(',')
           .map((i) => i.trim())
@@ -96,14 +146,7 @@ export default function MenuEditorPage() {
 
       if (response.ok) {
         setEditingItem(null);
-        setFormData({
-          name: '',
-          description: '',
-          price: '',
-          allergenTags: [],
-          ingredients: '',
-          isAvailable: true,
-        });
+        setFormData(resetForm());
         fetchMenuItems();
       } else {
         alert('Failed to save menu item');
@@ -145,22 +188,76 @@ export default function MenuEditorPage() {
     'SESAME',
   ];
 
-  return (
-    <div className="min-h-screen app-surface">
-      <MobileHeader title="Menu Editor" showBack onBack={() => router.back()} />
-      <div className="hidden md:block">
-        <Header title="Menu Editor" />
-      </div>
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-24 md:pb-8 app-grid animate-fade-up">
-        <div className="flex flex-col md:flex-row justify-between md:items-center gap-4 mb-6">
-          <div>
-            <h1 className="text-3xl font-semibold">Menu Editor</h1>
-            <p className="text-sm text-slate-500">Manage availability and update dietary tags.</p>
-          </div>
-          <Button onClick={() => setEditingItem({} as MenuItem)}>
-            Add Menu Item
-          </Button>
+  const getItemsForMeal = (meal: MealCategory) =>
+    menuItems.filter((item) => itemMatchesMeal(item, meal));
+
+  const visibleItems =
+    menuView === 'all' ? menuItems : getItemsForMeal(menuView);
+
+  const renderMenuCard = (item: MenuItem) => (
+    <Card key={item._id} className="overflow-hidden">
+      <MenuItemPhoto item={item} />
+      <div className="p-4">
+        <div className="flex justify-between items-start mb-2">
+          <h3 className="font-semibold text-lg text-slate-900">{item.name}</h3>
+          <Toggle
+            label=""
+            checked={item.isAvailable}
+            onChange={() => handleToggleAvailability(item._id, item.isAvailable)}
+          />
         </div>
+        <p className="text-sm text-slate-500 mb-2">{item.description}</p>
+        {item.mealCategories?.length ? (
+          <p className="text-xs font-medium text-emerald-700 mb-2">
+            {formatMealCategories(item.mealCategories)}
+          </p>
+        ) : null}
+        <p className="font-semibold mb-2 text-slate-900">${(item.price / 100).toFixed(2)}</p>
+        {item.allergenTags.length > 0 && (
+          <p className="text-xs text-rose-600 mb-2">
+            Contains: {item.allergenTags.join(', ')}
+          </p>
+        )}
+        <Button
+          onClick={() => handleEdit(item)}
+          variant="outline"
+          size="sm"
+          className="w-full mt-2"
+        >
+          Edit
+        </Button>
+      </div>
+    </Card>
+  );
+
+  const renderMenuGrid = (items: MenuItem[]) => {
+    if (items.length === 0) {
+      return (
+        <Card className="text-center py-10">
+          <p className="text-slate-500">No items in this menu yet.</p>
+        </Card>
+      );
+    }
+
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {items.map((item) => renderMenuCard(item))}
+      </div>
+    );
+  };
+
+  return (
+    <VendorShell
+      active="menu"
+      title="Menu Editor"
+      subtitle="Manage items across your breakfast, lunch, and dinner menus."
+      actions={
+        <Button onClick={openNewItemForm}>
+          Add Menu Item
+        </Button>
+      }
+    >
+      <div className="max-w-6xl mx-auto">
 
         {editingItem !== null && (
           <Card className="mb-6 p-6">
@@ -169,6 +266,29 @@ export default function MenuEditorPage() {
             </h2>
             
             <div className="space-y-4">
+              <MenuItemPhoto
+                item={{
+                  _id: editingItem._id,
+                  name: formData.name || 'New menu item',
+                  description: formData.description,
+                  ingredients: formData.ingredients
+                    .split(',')
+                    .map((i) => i.trim())
+                    .filter(Boolean),
+                  imageUrl: formData.imageUrl || undefined,
+                }}
+              />
+              <p className="text-xs text-slate-500">
+                Leave photo URL empty to auto-generate an image from the item name and description.
+              </p>
+
+              <Input
+                label="Photo URL (optional)"
+                value={formData.imageUrl}
+                onChange={(e) => setFormData({ ...formData, imageUrl: e.target.value })}
+                placeholder="https://example.com/your-dish.jpg"
+              />
+
               <Input
                 label="Name"
                 value={formData.name}
@@ -190,6 +310,31 @@ export default function MenuEditorPage() {
                 onChange={(e) => setFormData({ ...formData, price: e.target.value })}
               />
               
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">
+                  Meal periods
+                </label>
+                <p className="mb-2 text-xs text-slate-500">
+                  Select one or more. New items default to dinner.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {MEAL_CATEGORIES.map((meal) => (
+                    <button
+                      key={meal}
+                      type="button"
+                      onClick={() => toggleMealCategory(meal)}
+                      className={`px-3 py-1 rounded-full text-sm ${
+                        formData.mealCategories.includes(meal)
+                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                          : 'bg-slate-100 text-slate-700 border border-slate-200'
+                      }`}
+                    >
+                      {MEAL_CATEGORY_LABELS[meal]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <div>
                 <label className="block text-sm font-semibold text-slate-700 mb-2">
                   Allergens
@@ -245,69 +390,63 @@ export default function MenuEditorPage() {
           </Card>
         )}
 
+        <MealPeriodFilter
+          value={menuView}
+          onChange={setMenuView}
+          showAll
+          label="View menu"
+        />
+
         {loading ? (
           <div className="text-center py-12">
             <p className="text-slate-500">Loading menu items...</p>
           </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {menuItems.map((item) => (
-              <Card key={item._id}>
-                <div className="flex justify-between items-start mb-2">
-                  <h3 className="font-semibold text-lg text-slate-900">{item.name}</h3>
-                  <Toggle
-                    label=""
-                    checked={item.isAvailable}
-                    onChange={() => handleToggleAvailability(item._id, item.isAvailable)}
-                  />
-                </div>
-                <p className="text-sm text-slate-500 mb-2">{item.description}</p>
-                <p className="font-semibold mb-2 text-slate-900">${(item.price / 100).toFixed(2)}</p>
-                {item.allergenTags.length > 0 && (
-                  <p className="text-xs text-rose-600 mb-2">
-                    Contains: {item.allergenTags.join(', ')}
-                  </p>
-                )}
-                <Button
-                  onClick={() => handleEdit(item)}
-                  variant="outline"
-                  size="sm"
-                  className="w-full mt-2"
-                >
-                  Edit
-                </Button>
-              </Card>
-            ))}
+        ) : menuView === 'all' ? (
+          <div className="space-y-10">
+            {MEAL_CATEGORIES.map((meal) => {
+              const items = getItemsForMeal(meal);
+
+              return (
+                <section key={meal}>
+                  <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+                    <div>
+                      <h2 className="text-2xl font-semibold text-slate-900">
+                        {MEAL_CATEGORY_LABELS[meal]} Menu
+                      </h2>
+                      <p className="text-sm text-slate-500">
+                        {items.length} item{items.length === 1 ? '' : 's'} available for{' '}
+                        {MEAL_CATEGORY_LABELS[meal].toLowerCase()}
+                      </p>
+                    </div>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => {
+                        setMenuView(meal);
+                      }}
+                    >
+                      View only {MEAL_CATEGORY_LABELS[meal].toLowerCase()}
+                    </Button>
+                  </div>
+                  {renderMenuGrid(items)}
+                </section>
+              );
+            })}
           </div>
+        ) : (
+          <>
+            <div className="mb-4">
+              <h2 className="text-2xl font-semibold text-slate-900">
+                {MEAL_CATEGORY_LABELS[menuView]} Menu
+              </h2>
+              <p className="text-sm text-slate-500">
+                {visibleItems.length} item{visibleItems.length === 1 ? '' : 's'} in this menu
+              </p>
+            </div>
+            {renderMenuGrid(visibleItems)}
+          </>
         )}
       </div>
-
-      {/* Mobile Bottom Navigation */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur border-t border-slate-200 md:hidden">
-        <div className="flex justify-around py-2">
-          <button
-            onClick={() => router.push('/vendor/orders')}
-            className="flex flex-col items-center p-2 text-slate-600"
-          >
-            <span className="text-2xl">📦</span>
-            <span className="text-xs">Orders</span>
-          </button>
-          <button
-            onClick={() => router.push('/vendor/menu')}
-            className="flex flex-col items-center p-2 text-emerald-600"
-          >
-            <span className="text-2xl">📋</span>
-            <span className="text-xs">Menu</span>
-          </button>
-          <button
-            onClick={() => router.push('/vendor/settings')}
-            className="flex flex-col items-center p-2 text-slate-600"
-          >
-            <span className="text-2xl">⚙️</span>
-            <span className="text-xs">Settings</span>
-          </button>
-        </div>
-      </nav>
-    </div>
+    </VendorShell>
   );
 }

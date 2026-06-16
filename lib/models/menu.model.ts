@@ -10,7 +10,8 @@ export interface IMenuItem extends Document {
   ingredients: string[];
   lastVerifiedAt: Date;
   imageUrl?: string;
-  category?: string;
+  mealCategories?: ('breakfast' | 'lunch' | 'dinner')[];
+  category?: string; // legacy display label
   stockQuantity?: number | null; // null = unlimited / not tracked
   servingSizeOz?: number;
   maxPortionsPerOrder?: number; // Per-item override for portion protocols
@@ -70,6 +71,12 @@ const MenuItemSchema: Schema = new Schema(
       default: Date.now,
     },
     imageUrl: String,
+    mealCategories: {
+      type: [String],
+      enum: ['breakfast', 'lunch', 'dinner'],
+      default: ['dinner'],
+      index: true,
+    },
     category: String,
     stockQuantity: {
       type: Number,

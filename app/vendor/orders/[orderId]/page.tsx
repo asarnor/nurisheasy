@@ -5,8 +5,8 @@ import { useParams, useRouter } from 'next/navigation';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
-import { MobileHeader } from '@/components/layout/MobileHeader';
-import { Header } from '@/components/layout/Header';
+import { VendorShell } from '@/components/layout/VendorShell';
+import { vendorPath } from '@/lib/utils/debug-client';
 import { apiFetch } from '@/lib/utils/api';
 
 interface OrderItem {
@@ -90,24 +90,19 @@ export default function VendorOrderDetailPage() {
     (order?.totalAmount ?? 0);
 
   return (
-    <div className="min-h-screen app-surface">
-      <MobileHeader title="Order Details" showBack onBack={() => router.back()} />
-      <div className="hidden md:block">
-        <Header title="Order Details" />
-      </div>
-
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-24 md:pb-8 app-grid animate-fade-up">
-        <div className="flex items-center justify-between gap-4 mb-6">
-          <div>
-            <h1 className="text-3xl font-semibold text-slate-900">Order Details</h1>
-            {orderId && (
-              <p className="text-sm text-slate-500 mt-2">Order #{String(orderId).slice(-8)}</p>
-            )}
-          </div>
-          <Button variant="secondary" onClick={() => router.push('/vendor/orders')}>
-            Back to Orders
-          </Button>
-        </div>
+    <VendorShell
+      active="orders"
+      title="Order Details"
+      subtitle={orderId ? `Order #${String(orderId).slice(-8)}` : undefined}
+      showBack
+      onBack={() => router.push(vendorPath('/vendor/orders'))}
+      actions={
+        <Button variant="secondary" onClick={() => router.push(vendorPath('/vendor/orders'))}>
+          Back to Orders
+        </Button>
+      }
+    >
+      <div className="max-w-4xl mx-auto">
 
         {loading ? (
           <Card className="text-center py-12">
@@ -184,6 +179,6 @@ export default function VendorOrderDetailPage() {
           </div>
         )}
       </div>
-    </div>
+    </VendorShell>
   );
 }

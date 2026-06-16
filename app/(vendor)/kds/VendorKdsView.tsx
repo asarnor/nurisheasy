@@ -5,7 +5,7 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { apiFetch } from '@/lib/utils/api';
-import { isDebugClient } from '@/lib/utils/debug-client';
+import { VendorShell } from '@/components/layout/VendorShell';
 
 interface OrderItem {
   name: string;
@@ -233,18 +233,13 @@ export default function KitchenDisplaySystemPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white p-4">
+    <VendorShell
+      active="kds"
+      variant="kds"
+      title="Kitchen Display System"
+      subtitle="Live queue and allergy alerts"
+    >
       <div className="max-w-7xl mx-auto">
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h1 className="text-3xl font-semibold">Kitchen Display System</h1>
-            <p className="text-sm text-slate-400">Live queue and allergy alerts</p>
-          </div>
-          {!isDebugClient() && (
-            <span className="w-10 h-10 rounded-full bg-slate-700" />
-          )}
-        </div>
-        
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           {/* New Orders Column */}
           <div>
@@ -304,6 +299,6 @@ export default function KitchenDisplaySystemPage() {
           </div>
         </div>
       </div>
-    </div>
+    </VendorShell>
   );
 }

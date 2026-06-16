@@ -4,9 +4,11 @@ import React, { useState, useEffect } from 'react';
 import { MenuItemCard } from '@/components/consumer/MenuItemCard';
 import { MultiVendorCart } from '@/components/consumer/MultiVendorCart';
 import { DietaryFilter } from '@/components/consumer/DietaryFilter';
+import { MealPeriodFilter } from '@/components/consumer/MealPeriodFilter';
 import { Header } from '@/components/layout/Header';
 import { useRouter } from 'next/navigation';
 import { apiFetch } from '@/lib/utils/api';
+import type { MealCategory } from '@/lib/meal-categories';
 
 interface MenuItem {
   id: string;
@@ -18,6 +20,8 @@ interface MenuItem {
   allergenTags: string[];
   ingredients: string[];
   imageUrl?: string;
+  displayImageUrl?: string;
+  mealCategories?: MealCategory[];
   category?: string;
 }
 
@@ -35,11 +39,12 @@ export default function MarketplacePage() {
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [filter, setFilter] = useState('all');
+  const [mealPeriod, setMealPeriod] = useState<MealCategory>('dinner');
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     fetchMenuItems();
-  }, [filter]);
+  }, [filter, mealPeriod]);
 
   useEffect(() => {
     const savedCart = localStorage.getItem('cart');
@@ -55,7 +60,7 @@ export default function MarketplacePage() {
   const fetchMenuItems = async () => {
     try {
       setLoading(true);
-      const response = await apiFetch('/api/menus');
+      const response = await apiFetch(`/api/menus?meal=${mealPeriod}`);
       const data = await response.json();
       setMenuItems(data.items || []);
     } catch (error) {
@@ -154,6 +159,8 @@ export default function MarketplacePage() {
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           {/* Main Content */}
           <div className="lg:col-span-3 space-y-6">
+            <MealPeriodFilter value={mealPeriod} onChange={setMealPeriod} />
+
             <DietaryFilter
               value={filter}
               onChange={setFilter}
@@ -166,7 +173,7 @@ export default function MarketplacePage() {
               </div>
             ) : menuItems.length === 0 ? (
               <div className="text-center py-12">
-                <p className="text-slate-500">No menu items available</p>
+                <p className="text-slate-500">No menu items available for this meal period</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
@@ -177,7 +184,7 @@ export default function MarketplacePage() {
                     name={item.name}
                     price={item.price}
                     rating={4.5}
-                    imageUrl={item.imageUrl}
+                    imageUrl={item.displayImageUrl || item.imageUrl}
                     vendorName={item.vendorName}
                     allergenTags={item.allergenTags}
                     quantity={getCartItemQuantity(item.id)}

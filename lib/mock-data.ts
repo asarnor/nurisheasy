@@ -1,3 +1,6 @@
+import { assignGeneratedImageIfNeeded } from '@/lib/menu-item-images';
+import { normalizeMealCategoriesInput } from '@/lib/meal-categories';
+
 export type MockRole = 'consumer' | 'vendor' | 'admin';
 
 export interface MockOrganization {
@@ -33,6 +36,7 @@ export interface MockMenuItem {
   allergenTags: string[];
   ingredients: string[];
   imageUrl?: string;
+  mealCategories?: ('breakfast' | 'lunch' | 'dinner')[];
   category?: string;
   stockQuantity?: number | null;
   servingSizeOz?: number | null;
@@ -191,6 +195,7 @@ const createMockStore = (): MockStore => {
       allergenTags: ['EGG', 'WHEAT', 'DAIRY'],
       ingredients: ['eggs', 'butter', 'whole-wheat bread', 'herbs', 'seasonal fruit'],
       category: 'Breakfast (7am–11am)',
+      mealCategories: ['breakfast'],
       stockQuantity: 100,
       servingSizeOz: 10,
       maxPortionsPerOrder: 25,
@@ -206,6 +211,7 @@ const createMockStore = (): MockStore => {
       allergenTags: ['TREE_NUT'],
       ingredients: ['steel-cut oats', 'banana', 'walnuts', 'honey', 'cinnamon'],
       category: 'Breakfast (7am–11am)',
+      mealCategories: ['breakfast'],
       stockQuantity: 100,
       servingSizeOz: 12,
       maxPortionsPerOrder: 25,
@@ -221,6 +227,7 @@ const createMockStore = (): MockStore => {
       allergenTags: ['EGG', 'WHEAT', 'DAIRY'],
       ingredients: ['tortilla', 'eggs', 'black beans', 'bell pepper', 'salsa', 'cheese'],
       category: 'Breakfast (7am–11am)',
+      mealCategories: ['breakfast'],
       stockQuantity: 80,
       servingSizeOz: 14,
       maxPortionsPerOrder: 25,
@@ -236,6 +243,7 @@ const createMockStore = (): MockStore => {
       allergenTags: ['DAIRY'],
       ingredients: ['greek yogurt', 'granola', 'strawberries', 'blueberries', 'honey'],
       category: 'Breakfast (7am–11am)',
+      mealCategories: ['breakfast'],
       stockQuantity: 100,
       servingSizeOz: 8,
       maxPortionsPerOrder: 25,
@@ -253,6 +261,7 @@ const createMockStore = (): MockStore => {
       allergenTags: ['DAIRY', 'WHEAT', 'EGG'],
       ingredients: ['chicken breast', 'romaine', 'parmesan', 'spinach wrap', 'caesar dressing'],
       category: 'Lunch (11am–2pm)',
+      mealCategories: ['lunch'],
       stockQuantity: 100,
       servingSizeOz: 14,
       maxPortionsPerOrder: 25,
@@ -268,6 +277,7 @@ const createMockStore = (): MockStore => {
       allergenTags: ['SESAME'],
       ingredients: ['quinoa', 'sweet potato', 'kale', 'chickpeas', 'tahini'],
       category: 'Lunch (11am–2pm)',
+      mealCategories: ['lunch'],
       stockQuantity: 100,
       servingSizeOz: 14,
       maxPortionsPerOrder: 25,
@@ -283,6 +293,7 @@ const createMockStore = (): MockStore => {
       allergenTags: ['WHEAT', 'GLUTEN'],
       ingredients: ['carrots', 'celery', 'potatoes', 'tomatoes', 'sourdough bread'],
       category: 'Lunch (11am–2pm)',
+      mealCategories: ['lunch'],
       stockQuantity: 100,
       servingSizeOz: 16,
       maxPortionsPerOrder: 25,
@@ -298,6 +309,7 @@ const createMockStore = (): MockStore => {
       allergenTags: ['WHEAT', 'GLUTEN'],
       ingredients: ['turkey', 'avocado', 'bacon', 'lettuce', 'tomato', 'whole grain bread'],
       category: 'Lunch (11am–2pm)',
+      mealCategories: ['lunch'],
       stockQuantity: 80,
       servingSizeOz: 12,
       maxPortionsPerOrder: 25,
@@ -315,6 +327,7 @@ const createMockStore = (): MockStore => {
       allergenTags: [],
       ingredients: ['chicken breast', 'rosemary', 'zucchini', 'carrots', 'brown rice'],
       category: 'Dinner (5pm–8pm)',
+      mealCategories: ['dinner'],
       stockQuantity: 100,
       servingSizeOz: 16,
       maxPortionsPerOrder: 25,
@@ -330,6 +343,7 @@ const createMockStore = (): MockStore => {
       allergenTags: ['FISH', 'DAIRY'],
       ingredients: ['salmon', 'lemon', 'dill', 'cream', 'asparagus', 'potatoes'],
       category: 'Dinner (5pm–8pm)',
+      mealCategories: ['dinner'],
       stockQuantity: 60,
       servingSizeOz: 16,
       maxPortionsPerOrder: 25,
@@ -345,6 +359,7 @@ const createMockStore = (): MockStore => {
       allergenTags: ['WHEAT', 'GLUTEN', 'DAIRY'],
       ingredients: ['beef', 'potatoes', 'carrots', 'onions', 'cornbread'],
       category: 'Dinner (5pm–8pm)',
+      mealCategories: ['dinner'],
       stockQuantity: 80,
       servingSizeOz: 16,
       maxPortionsPerOrder: 25,
@@ -360,6 +375,7 @@ const createMockStore = (): MockStore => {
       allergenTags: ['WHEAT', 'GLUTEN'],
       ingredients: ['penne pasta', 'bell peppers', 'zucchini', 'cherry tomatoes', 'garlic', 'olive oil'],
       category: 'Dinner (5pm–8pm)',
+      mealCategories: ['dinner'],
       stockQuantity: 100,
       servingSizeOz: 14,
       maxPortionsPerOrder: 25,
@@ -377,6 +393,7 @@ const createMockStore = (): MockStore => {
       allergenTags: ['DAIRY'],
       ingredients: ['lentils', 'turmeric', 'coconut milk'],
       category: 'Lunch (11am–2pm)',
+      mealCategories: ['lunch'],
       stockQuantity: 40,
       servingSizeOz: 12,
     },
@@ -391,6 +408,7 @@ const createMockStore = (): MockStore => {
       allergenTags: ['SESAME'],
       ingredients: ['spinach wrap', 'zucchini', 'tahini'],
       category: 'Lunch (11am–2pm)',
+      mealCategories: ['lunch'],
       stockQuantity: 40,
       servingSizeOz: 10,
     },
@@ -597,7 +615,7 @@ export const createMockMenuItem = (vendorId: string, payload: Partial<MockMenuIt
   const vendor = store.organizations.vendors.find((item) => item.id === vendorId);
   if (!vendor) return null;
 
-  const newItem: MockMenuItem = {
+  const draft: MockMenuItem = {
     id: `menu_mock_${Date.now()}`,
     vendorId: vendor.id,
     vendorName: vendor.name,
@@ -608,11 +626,19 @@ export const createMockMenuItem = (vendorId: string, payload: Partial<MockMenuIt
     allergenTags: payload.allergenTags || [],
     ingredients: payload.ingredients || [],
     imageUrl: payload.imageUrl,
+    mealCategories: normalizeMealCategoriesInput(payload.mealCategories),
     category: payload.category,
   };
 
+  const newItem = assignGeneratedImageIfNeeded(draft, draft.id);
+
   store.menuItems.unshift(newItem);
   return newItem;
+};
+
+export const getMockMenuItemById = (menuId: string) => {
+  const store = getMockStore();
+  return store.menuItems.find((entry) => entry.id === menuId) || null;
 };
 
 export const updateMockMenuItem = (menuId: string, payload: Partial<MockMenuItem>) => {
