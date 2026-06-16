@@ -23,6 +23,13 @@ export interface IOrder extends Document {
   totalAmount: number; // Total order amount in cents
   platformFee: number; // Platform fee in cents (10%)
   subOrders: ISubOrder[];
+  contractDurationMonths?: 3 | 6 | 9 | 12;
+  preparationDayOfWeek?: number;
+  mealPeriods?: ('breakfast' | 'lunch' | 'dinner')[];
+  fulfillmentMethod?: 'pickup' | 'delivery';
+  deliveryFeeCents?: number;
+  contractStartDate?: Date;
+  contractEndDate?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -98,6 +105,30 @@ const OrderSchema: Schema = new Schema(
       min: 0,
     },
     subOrders: [SubOrderSchema],
+    contractDurationMonths: {
+      type: Number,
+      enum: [3, 6, 9, 12],
+    },
+    preparationDayOfWeek: {
+      type: Number,
+      min: 0,
+      max: 6,
+    },
+    mealPeriods: {
+      type: [String],
+      enum: ['breakfast', 'lunch', 'dinner'],
+    },
+    fulfillmentMethod: {
+      type: String,
+      enum: ['pickup', 'delivery'],
+    },
+    deliveryFeeCents: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+    contractStartDate: Date,
+    contractEndDate: Date,
   },
   {
     timestamps: true,

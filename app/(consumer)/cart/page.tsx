@@ -6,8 +6,14 @@ import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { MobileHeader } from '@/components/layout/MobileHeader';
 import { Header } from '@/components/layout/Header';
+import { ContractCheckoutOptions } from '@/components/consumer/ContractCheckoutOptions';
 import { loadStripe } from '@stripe/stripe-js';
 import { apiFetch } from '@/lib/utils/api';
+import {
+  DEFAULT_CONTRACT_OPTIONS,
+  DELIVERY_FEE_CENTS,
+  type OrderContractOptions,
+} from '@/lib/contract-options';
 
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || '');
 
@@ -24,9 +30,11 @@ export default function CartPage() {
   const router = useRouter();
   const [cart, setCart] = useState<CartItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const [contractOptions, setContractOptions] = useState<OrderContractOptions>(
+    DEFAULT_CONTRACT_OPTIONS
+  );
 
   useEffect(() => {
-    // Load cart from localStorage or state management
     const savedCart = localStorage.getItem('cart');
     if (savedCart) {
       setCart(JSON.parse(savedCart));
@@ -40,17 +48,19 @@ export default function CartPage() {
   };
 
   const handleQuantityChange = (id: string, delta: number) => {
-    const updatedCart = cart.map((item) => {
-      if (item.id === id) {
-        const newQuantity = Math.max(0, item.quantity + delta);
-        if (newQuantity === 0) {
-          return null;
+    const updatedCart = cart
+      .map((item) => {
+        if (item.id === id) {
+          const newQuantity = Math.max(0, item.quantity + delta);
+          if (newQuantity === 0) {
+            return null;
+          }
+          return { ...item, quantity: newQuantity };
         }
-        return { ...item, quantity: newQuantity };
-      }
-      return item;
-    }).filter(Boolean) as CartItem[];
-    
+        return item;
+      })
+      .filter(Boolean) as CartItem[];
+
     setCart(updatedCart);
     localStorage.setItem('cart', JSON.stringify(updatedCart));
   };
@@ -60,7 +70,7 @@ export default function CartPage() {
 
     try {
       setLoading(true);
-      
+
       const orderItems = cart.map((item) => ({
         menuItemId: item.id,
         quantity: item.quantity,
@@ -71,7 +81,10 @@ export default function CartPage() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ items: orderItems }),
+        body: JSON.stringify({
+          items: orderItems,
+          contract: contractOptions,
+        }),
       });
 
       if (!response.ok) {
@@ -80,13 +93,10 @@ export default function CartPage() {
       }
 
       const orderData = await response.json();
-      
-      // Redirect to Stripe checkout or handle payment
+
       if (orderData.clientSecret) {
         const stripe = await stripePromise;
         if (stripe) {
-          // Handle Stripe payment confirmation
-          // This would typically use Stripe Elements or Checkout
           localStorage.removeItem('cart');
           setCart([]);
           router.push(`/orders/${orderData.orderId}`);
@@ -104,26 +114,29 @@ export default function CartPage() {
     }
   };
 
-  const totalPrice = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const deliveryFee =
+    contractOptions.fulfillmentMethod === 'delivery' ? DELIVERY_FEE_CENTS : 0;
+  const totalPrice = subtotal + deliveryFee;
 
-  // Group items by vendor
-  const itemsByVendor = cart.reduce((acc, item) => {
-    if (!acc[item.vendorId]) {
-      acc[item.vendorId] = {
-        vendorName: item.vendorName,
-        items: [],
-      };
-    }
-    acc[item.vendorId].items.push(item);
-    return acc;
-  }, {} as Record<string, { vendorName: string; items: CartItem[] }>);
+  const itemsByVendor = cart.reduce(
+    (acc, item) => {
+      if (!acc[item.vendorId]) {
+        acc[item.vendorId] = {
+          vendorName: item.vendorName,
+          items: [],
+        };
+      }
+      acc[item.vendorId].items.push(item);
+      return acc;
+    },
+    {} as Record<string, { vendorName: string; items: CartItem[] }>
+  );
 
   return (
     <div className="min-h-screen app-surface">
-      {/* Mobile Header */}
       <MobileHeader title="Cart" showBack onBack={() => router.back()} />
-      
-      {/* Desktop Header */}
+
       <div className="hidden md:block">
         <Header title="Shopping Cart" />
       </div>
@@ -140,9 +153,16 @@ export default function CartPage() {
           </Card>
         ) : (
           <div className="space-y-6">
+            <ContractCheckoutOptions
+              value={contractOptions}
+              onChange={setContractOptions}
+            />
+
             {Object.entries(itemsByVendor).map(([vendorId, vendorData]) => (
               <Card key={vendorId}>
-                <h2 className="text-lg font-semibold mb-4 text-slate-900">{vendorData.vendorName}</h2>
+                <h2 className="text-lg font-semibold mb-4 text-slate-900">
+                  {vendorData.vendorName}
+                </h2>
                 <div className="space-y-4">
                   {vendorData.items.map((item) => (
                     <div
@@ -155,7 +175,7 @@ export default function CartPage() {
                           ${(item.price / 100).toFixed(2)} each
                         </p>
                       </div>
-                      
+
                       <div className="flex items-center gap-4">
                         <div className="flex items-center border border-slate-200 rounded-xl bg-white/80">
                           <button
@@ -174,11 +194,11 @@ export default function CartPage() {
                             +
                           </button>
                         </div>
-                        
+
                         <span className="font-semibold w-20 text-right text-slate-900">
                           ${((item.price * item.quantity) / 100).toFixed(2)}
                         </span>
-                        
+
                         <button
                           onClick={() => handleRemoveItem(item.id)}
                           className="text-rose-600 hover:text-rose-800 ml-2"
@@ -192,11 +212,24 @@ export default function CartPage() {
               </Card>
             ))}
 
-            {/* Total and Checkout */}
             <Card>
-              <div className="flex justify-between items-center mb-6">
-                <span className="text-xl font-semibold text-slate-700">Total Price</span>
-                <span className="text-3xl font-semibold text-slate-900">${(totalPrice / 100).toFixed(2)}</span>
+              <div className="space-y-3 mb-6">
+                <div className="flex justify-between text-sm text-slate-600">
+                  <span>Food subtotal</span>
+                  <span>${(subtotal / 100).toFixed(2)}</span>
+                </div>
+                {deliveryFee > 0 && (
+                  <div className="flex justify-between text-sm text-slate-600">
+                    <span>Delivery fee</span>
+                    <span>${(deliveryFee / 100).toFixed(2)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between items-center border-t border-slate-200 pt-3">
+                  <span className="text-xl font-semibold text-slate-700">Total</span>
+                  <span className="text-3xl font-semibold text-slate-900">
+                    ${(totalPrice / 100).toFixed(2)}
+                  </span>
+                </div>
               </div>
               <Button
                 onClick={handlePlaceOrder}
@@ -204,7 +237,7 @@ export default function CartPage() {
                 size="lg"
                 disabled={loading}
               >
-                {loading ? 'Processing...' : 'Place Order'}
+                {loading ? 'Processing...' : 'Place contractual order'}
               </Button>
             </Card>
           </div>

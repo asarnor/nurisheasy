@@ -108,3 +108,29 @@ export interface ContractTerms {
   contractEndDate?: Date;
   isActive: boolean;
 }
+
+export type ContractDurationMonths = 3 | 6 | 9 | 12;
+
+export type FulfillmentMethod = 'pickup' | 'delivery';
+
+export interface OrderContractDetails {
+  contractDurationMonths: ContractDurationMonths;
+  preparationDayOfWeek: number;
+  mealPeriods: ('breakfast' | 'lunch' | 'dinner')[];
+  fulfillmentMethod: FulfillmentMethod;
+  deliveryFeeCents: number;
+  contractStartDate?: string;
+  contractEndDate?: string;
+}
+
+export interface VendorReview {
+  id: string;
+  orderId: string;
+  vendorId: string;
+  consumerId: string;
+  consumerName: string;
+  rating: number;
+  comment?: string;
+  fulfillmentMethod: FulfillmentMethod;
+  createdAt: string;
+}

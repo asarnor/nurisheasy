@@ -5,9 +5,13 @@ import { useParams, useRouter } from 'next/navigation';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
+import { ContractOrderSummary } from '@/components/orders/ContractOrderSummary';
 import { VendorShell } from '@/components/layout/VendorShell';
 import { vendorPath } from '@/lib/utils/debug-client';
 import { apiFetch } from '@/lib/utils/api';
+
+import type { FulfillmentMethod } from '@/lib/contract-options';
+import type { MealCategory } from '@/lib/meal-categories';
 
 interface OrderItem {
   name: string;
@@ -30,6 +34,13 @@ interface Order {
   consumerId?: { name?: string };
   consumerName?: string;
   totalAmount?: number;
+  deliveryFeeCents?: number;
+  contractDurationMonths?: 3 | 6 | 9 | 12;
+  preparationDayOfWeek?: number;
+  mealPeriods?: MealCategory[];
+  fulfillmentMethod?: FulfillmentMethod;
+  contractStartDate?: string;
+  contractEndDate?: string;
   subOrders: SubOrder[];
 }
 
@@ -70,7 +81,7 @@ export default function VendorOrderDetailPage() {
   const fetchOrder = async () => {
     try {
       setLoading(true);
-      const response = await apiFetch('/api/orders');
+      const response = await apiFetch(`/api/orders?orderId=${orderId}`);
       if (response.ok) {
         const data = await response.json();
         const match = (data.orders || []).find((item: Order) => item._id === orderId);
@@ -114,6 +125,19 @@ export default function VendorOrderDetailPage() {
           </Card>
         ) : (
           <div className="space-y-6">
+            <ContractOrderSummary
+              order={{
+                consumerName: order.consumerId?.name || order.consumerName || 'Unknown',
+                contractDurationMonths: order.contractDurationMonths,
+                preparationDayOfWeek: order.preparationDayOfWeek,
+                mealPeriods: order.mealPeriods,
+                fulfillmentMethod: order.fulfillmentMethod,
+                deliveryFeeCents: order.deliveryFeeCents,
+                contractStartDate: order.contractStartDate ?? order.createdAt,
+                contractEndDate: order.contractEndDate,
+              }}
+            />
+
             <Card>
               <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div>
@@ -127,13 +151,6 @@ export default function VendorOrderDetailPage() {
                   {getStatusBadge(vendorSubOrder?.status || order.status)}
                 </div>
               </div>
-            </Card>
-
-            <Card>
-              <h2 className="text-lg font-semibold mb-3">Customer</h2>
-              <p className="text-slate-700">
-                {order.consumerId?.name || order.consumerName || 'Unknown'}
-              </p>
             </Card>
 
             <Card>

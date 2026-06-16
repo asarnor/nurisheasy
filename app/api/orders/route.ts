@@ -9,6 +9,12 @@ import { createPaymentIntent, calculatePlatformFee } from '@/lib/utils/stripe';
 import { shouldUseMockData, getDebugRoleFromRequest } from '@/lib/utils/debug';
 import { createMockOrder, getMockOrders, getMockStore } from '@/lib/mock-data';
 import {
+  calculateContractEndDate,
+  DELIVERY_FEE_CENTS,
+  DEFAULT_CONTRACT_OPTIONS,
+  type OrderContractOptions,
+} from '@/lib/contract-options';
+import {
   getActivePlatformRules,
   DEFAULT_RULES,
   validateOrderMinimums,
@@ -17,6 +23,20 @@ import {
   validateInventory,
   type RuleViolation,
 } from '@/lib/platform-rules';
+
+const mealCategorySchema = z.enum(['breakfast', 'lunch', 'dinner']);
+
+const contractOptionsSchema = z.object({
+  contractDurationMonths: z.union([
+    z.literal(3),
+    z.literal(6),
+    z.literal(9),
+    z.literal(12),
+  ]),
+  preparationDayOfWeek: z.number().int().min(0).max(6),
+  mealPeriods: z.array(mealCategorySchema).min(1),
+  fulfillmentMethod: z.enum(['pickup', 'delivery']),
+});
 
 const orderSchema = z.object({
   items: z.array(
@@ -27,6 +47,7 @@ const orderSchema = z.object({
   ),
   portionJustification: z.string().optional(),
   requestedDeliveryTime: z.string().datetime().optional(),
+  contract: contractOptionsSchema.optional(),
 });
 
 /**
@@ -64,7 +85,10 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      const order = createMockOrder(validatedData.items);
+      const order = createMockOrder(
+        validatedData.items,
+        validatedData.contract || DEFAULT_CONTRACT_OPTIONS
+      );
 
       if (!order) {
         return NextResponse.json(
@@ -93,6 +117,15 @@ export async function POST(request: NextRequest) {
         clientSecret: `debug_${order.paymentIntentId}`,
         totalAmount: order.totalAmount,
         platformFee: order.platformFee,
+        deliveryFeeCents: order.deliveryFeeCents,
+        contract: {
+          contractDurationMonths: order.contractDurationMonths,
+          preparationDayOfWeek: order.preparationDayOfWeek,
+          mealPeriods: order.mealPeriods,
+          fulfillmentMethod: order.fulfillmentMethod,
+          contractStartDate: order.contractStartDate,
+          contractEndDate: order.contractEndDate,
+        },
         subOrders: order.subOrders,
       });
     }
@@ -256,7 +289,22 @@ export async function POST(request: NextRequest) {
 
       // Use configurable platform fee instead of hardcoded 10%
       const feePercent = platformRules.platformFeePercent ?? 10;
+      const contractOptions: OrderContractOptions = {
+        ...DEFAULT_CONTRACT_OPTIONS,
+        ...(validatedData.contract || {}),
+        mealPeriods: validatedData.contract?.mealPeriods?.length
+          ? validatedData.contract.mealPeriods
+          : DEFAULT_CONTRACT_OPTIONS.mealPeriods,
+      };
+      const deliveryFeeCents =
+        contractOptions.fulfillmentMethod === 'delivery' ? DELIVERY_FEE_CENTS : 0;
+      totalAmount += deliveryFeeCents;
       const platformFee = Math.round(totalAmount * (feePercent / 100));
+      const contractStartDate = new Date();
+      const contractEndDate = calculateContractEndDate(
+        contractStartDate,
+        contractOptions.contractDurationMonths
+      );
 
       // Create payment intent
       const paymentIntent = await createPaymentIntent(totalAmount, {
@@ -272,6 +320,13 @@ export async function POST(request: NextRequest) {
         totalAmount,
         platformFee,
         subOrders,
+        contractDurationMonths: contractOptions.contractDurationMonths,
+        preparationDayOfWeek: contractOptions.preparationDayOfWeek,
+        mealPeriods: contractOptions.mealPeriods,
+        fulfillmentMethod: contractOptions.fulfillmentMethod,
+        deliveryFeeCents,
+        contractStartDate,
+        contractEndDate,
       });
 
       await order.save();

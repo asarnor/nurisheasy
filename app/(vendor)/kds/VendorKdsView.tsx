@@ -23,6 +23,54 @@ interface SubOrder {
   allergenAlerts?: string[];
 }
 
+type ColumnKey = 'new' | 'prep' | 'ready';
+
+const statusLabelMap: Record<string, string> = {
+  PENDING: 'New Order',
+  ACCEPTED: 'Accepted',
+  PREPARING: 'Preparing',
+  READY: 'Ready for Pickup',
+  DELIVERED: 'Delivered',
+  CANCELLED: 'Cancelled',
+};
+
+const columnConfig: Record<
+  ColumnKey,
+  {
+    title: string;
+    emptyLabel: string;
+    badge: 'warning' | 'info' | 'success';
+    accent: string;
+    panel: string;
+    header: string;
+  }
+> = {
+  new: {
+    title: 'New Orders',
+    emptyLabel: 'No new orders',
+    badge: 'warning',
+    accent: 'border-l-amber-500',
+    panel: 'bg-amber-50/60 border-amber-100',
+    header: 'text-amber-900',
+  },
+  prep: {
+    title: 'To Prep',
+    emptyLabel: 'No orders to prep',
+    badge: 'info',
+    accent: 'border-l-sky-500',
+    panel: 'bg-sky-50/60 border-sky-100',
+    header: 'text-sky-900',
+  },
+  ready: {
+    title: 'Ready',
+    emptyLabel: 'No orders ready',
+    badge: 'success',
+    accent: 'border-l-emerald-500',
+    panel: 'bg-emerald-50/60 border-emerald-100',
+    header: 'text-emerald-900',
+  },
+};
+
 export default function KitchenDisplaySystemPage() {
   const [newOrders, setNewOrders] = useState<SubOrder[]>([]);
   const [toPrep, setToPrep] = useState<SubOrder[]>([]);
@@ -30,7 +78,6 @@ export default function KitchenDisplaySystemPage() {
 
   useEffect(() => {
     fetchOrders();
-    // Poll for new orders every 5 seconds
     const interval = setInterval(fetchOrders, 5000);
     return () => clearInterval(interval);
   }, []);
@@ -41,15 +88,14 @@ export default function KitchenDisplaySystemPage() {
       if (response.ok) {
         const data = await response.json();
         const vendorOrders = data.orders || [];
-        
-        // Filter and categorize orders
+
         const newOrdersList: SubOrder[] = [];
         const toPrepList: SubOrder[] = [];
         const readyList: SubOrder[] = [];
 
         vendorOrders.forEach((order: any) => {
           const subOrder = order.subOrders?.[0];
-          
+
           if (subOrder) {
             const subOrderData: SubOrder = {
               ...subOrder,
@@ -132,56 +178,70 @@ export default function KitchenDisplaySystemPage() {
     fetchOrders();
   };
 
-  const OrderCard = ({ order }: { order: SubOrder }) => {
+  const OrderCard = ({
+    order,
+    accent,
+  }: {
+    order: SubOrder;
+    accent: string;
+  }) => {
     const hasAllergenAlerts = order.allergenAlerts && order.allergenAlerts.length > 0;
-    const statusLabelMap: Record<string, string> = {
-      PENDING: 'New Order',
-      ACCEPTED: 'Accepted',
-      PREPARING: 'Preparing',
-      READY: 'Ready for Pickup',
-      DELIVERED: 'Delivered',
-      CANCELLED: 'Cancelled',
-    };
 
     return (
-      <Card className="mb-4 bg-slate-900/70 border-slate-800 text-slate-100">
+      <Card className={`border-l-4 ${accent} bg-white shadow-sm`}>
         {hasAllergenAlerts && (
-          <div className="bg-red-600 text-white p-3 mb-3 rounded-lg">
-            <p className="font-bold text-lg">ALLERGY ALERT!</p>
-            <p>{order.allergenAlerts?.join(', ').toUpperCase()}!</p>
+          <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2">
+            <p className="text-sm font-semibold text-rose-800">Allergy alert</p>
+            <p className="text-xs text-rose-700">
+              {order.allergenAlerts?.join(', ')}
+            </p>
           </div>
         )}
-        
-        <div className="mb-3">
-          <h3 className="font-semibold text-lg">
-            {statusLabelMap[order.status] || 'Order Update'}
-          </h3>
-          <p className="text-sm text-slate-300">From: {order.consumerName}</p>
-          <p className="text-sm text-slate-400">Order ID: {order.orderId.slice(-8)}</p>
+
+        <div className="mb-4">
+          <div className="flex items-start justify-between gap-2">
+            <h3 className="font-semibold text-slate-900">
+              {statusLabelMap[order.status] || 'Order Update'}
+            </h3>
+            <span className="shrink-0 rounded-md bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
+              #{order.orderId.slice(-8)}
+            </span>
+          </div>
+          <p className="mt-1 text-sm text-slate-600">{order.consumerName}</p>
         </div>
 
-        <div className="mb-3">
-          <h4 className="font-medium mb-2">Items:</h4>
-          <ul className="space-y-1">
+        <div className="mb-4 rounded-xl bg-slate-50 px-3 py-2">
+          <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Items
+          </h4>
+          <ul className="space-y-1.5">
             {order.items.map((item, idx) => (
-              <li key={idx} className="text-sm text-slate-200">
-                {item.name} × {item.quantity} - ${((item.price * item.quantity) / 100).toFixed(2)}
+              <li
+                key={idx}
+                className="flex items-center justify-between text-sm text-slate-700"
+              >
+                <span>
+                  {item.name}{' '}
+                  <span className="text-slate-400">× {item.quantity}</span>
+                </span>
+                <span className="font-medium text-slate-900">
+                  ${((item.price * item.quantity) / 100).toFixed(2)}
+                </span>
               </li>
             ))}
           </ul>
         </div>
 
-        <div className="flex justify-between items-center mb-3">
-          <span className="font-semibold text-emerald-200">Total: ${(order.vendorTotal / 100).toFixed(2)}</span>
+        <div className="mb-4 flex items-center justify-between border-t border-slate-100 pt-3">
+          <span className="text-sm text-slate-500">Order total</span>
+          <span className="text-lg font-semibold text-slate-900">
+            ${(order.vendorTotal / 100).toFixed(2)}
+          </span>
         </div>
 
         {order.status === 'PENDING' && (
           <div className="flex gap-2">
-            <Button
-              onClick={() => handleAccept(order.orderId)}
-              className="flex-1"
-              variant="primary"
-            >
+            <Button onClick={() => handleAccept(order.orderId)} className="flex-1">
               Accept
             </Button>
             <Button
@@ -195,110 +255,85 @@ export default function KitchenDisplaySystemPage() {
         )}
 
         {order.status === 'ACCEPTED' && (
-          <div className="flex gap-2">
-            <Button
-              onClick={() => handleStatusChange(order.orderId, 'PREPARING', order.vendorId)}
-              className="flex-1"
-            >
-              Start Preparing
-            </Button>
-          </div>
+          <Button
+            onClick={() => handleStatusChange(order.orderId, 'PREPARING', order.vendorId)}
+            className="w-full"
+          >
+            Start Preparing
+          </Button>
         )}
 
         {order.status === 'PREPARING' && (
-          <div className="flex gap-2">
-            <Button
-              onClick={() => handleStatusChange(order.orderId, 'READY', order.vendorId)}
-              className="flex-1"
-              variant="primary"
-            >
-              Mark Ready
-            </Button>
-          </div>
+          <Button
+            onClick={() => handleStatusChange(order.orderId, 'READY', order.vendorId)}
+            className="w-full"
+          >
+            Mark Ready
+          </Button>
         )}
 
         {order.status === 'READY' && (
-          <div className="flex gap-2">
-            <Button
-              onClick={() => handleStatusChange(order.orderId, 'DELIVERED', order.vendorId)}
-              className="flex-1"
-              variant="secondary"
-            >
-              Mark Delivered
-            </Button>
-          </div>
+          <Button
+            onClick={() => handleStatusChange(order.orderId, 'DELIVERED', order.vendorId)}
+            className="w-full"
+            variant="secondary"
+          >
+            Mark Delivered
+          </Button>
         )}
       </Card>
     );
   };
 
+  const columns: { key: ColumnKey; orders: SubOrder[] }[] = [
+    { key: 'new', orders: newOrders },
+    { key: 'prep', orders: toPrep },
+    { key: 'ready', orders: ready },
+  ];
+
   return (
     <VendorShell
       active="kds"
-      variant="kds"
       title="Kitchen Display System"
       subtitle="Live queue and allergy alerts"
     >
       <div className="max-w-7xl mx-auto">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          {/* New Orders Column */}
-          <div>
-            <div className="bg-slate-900/70 border border-slate-800 rounded-2xl p-4 mb-4">
-              <h2 className="text-xl font-semibold mb-2">New Orders</h2>
-              <Badge variant="warning">{newOrders.length}</Badge>
-            </div>
-            <div className="space-y-4">
-              {newOrders.length === 0 ? (
-                <Card className="text-center py-8 text-slate-400 bg-slate-900/60 border-slate-800">
-                  No new orders
-                </Card>
-              ) : (
-                newOrders.map((order) => (
-                  <OrderCard key={order.orderId} order={order} />
-                ))
-              )}
-            </div>
-          </div>
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+          {columns.map(({ key, orders }) => {
+            const config = columnConfig[key];
 
-          {/* To Prep Column */}
-          <div>
-            <div className="bg-slate-900/70 border border-slate-800 rounded-2xl p-4 mb-4">
-              <h2 className="text-xl font-semibold mb-2">To Prep</h2>
-              <Badge variant="info">{toPrep.length}</Badge>
-            </div>
-            <div className="space-y-4">
-              {toPrep.length === 0 ? (
-                <Card className="text-center py-8 text-slate-400 bg-slate-900/60 border-slate-800">
-                  No orders to prep
-                </Card>
-              ) : (
-                toPrep.map((order) => (
-                  <OrderCard key={order.orderId} order={order} />
-                ))
-              )}
-            </div>
-          </div>
+            return (
+              <section
+                key={key}
+                className={`rounded-2xl border p-4 ${config.panel}`}
+              >
+                <div className="mb-4 flex items-center justify-between">
+                  <h2 className={`text-lg font-semibold ${config.header}`}>
+                    {config.title}
+                  </h2>
+                  <Badge variant={config.badge}>{orders.length}</Badge>
+                </div>
 
-          {/* Ready Column */}
-          <div>
-            <div className="bg-slate-900/70 border border-slate-800 rounded-2xl p-4 mb-4">
-              <h2 className="text-xl font-semibold mb-2">Ready</h2>
-              <Badge variant="success">{ready.length}</Badge>
-            </div>
-            <div className="space-y-4">
-              {ready.length === 0 ? (
-                <Card className="text-center py-8 text-slate-400 bg-slate-900/60 border-slate-800">
-                  No orders ready
-                </Card>
-              ) : (
-                ready.map((order) => (
-                  <OrderCard key={order.orderId} order={order} />
-                ))
-              )}
-            </div>
-          </div>
+                <div className="space-y-4">
+                  {orders.length === 0 ? (
+                    <div className="rounded-xl border border-dashed border-slate-200 bg-white/70 px-4 py-10 text-center">
+                      <p className="text-sm text-slate-500">{config.emptyLabel}</p>
+                    </div>
+                  ) : (
+                    orders.map((order) => (
+                      <OrderCard
+                        key={order.orderId}
+                        order={order}
+                        accent={config.accent}
+                      />
+                    ))
+                  )}
+                </div>
+              </section>
+            );
+          })}
         </div>
       </div>
     </VendorShell>
   );
-}
+};

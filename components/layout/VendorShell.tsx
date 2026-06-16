@@ -6,13 +6,12 @@ import { usePathname } from 'next/navigation';
 import { UserButton } from '@clerk/nextjs';
 import { isDebugClient, vendorPath } from '@/lib/utils/debug-client';
 
-export type VendorNavId = 'kds' | 'orders' | 'menu' | 'quick-edit' | 'settings';
+export type VendorNavId = 'kds' | 'orders' | 'menu' | 'quick-edit' | 'reviews' | 'settings';
 
 interface VendorShellProps {
   title: string;
   subtitle?: string;
   active: VendorNavId;
-  variant?: 'default' | 'kds';
   actions?: React.ReactNode;
   showBack?: boolean;
   onBack?: () => void;
@@ -24,6 +23,7 @@ const navItems: { id: VendorNavId; label: string; shortLabel: string; href: stri
   { id: 'orders', label: 'Orders', shortLabel: 'Orders', href: '/vendor/orders', icon: '📦' },
   { id: 'menu', label: 'Menu Editor', shortLabel: 'Menu', href: '/vendor/menu', icon: '📋' },
   { id: 'quick-edit', label: 'Stock Toggle', shortLabel: 'Stock', href: '/vendor/menu/quick-edit', icon: '🔁' },
+  { id: 'reviews', label: 'Reviews', shortLabel: 'Reviews', href: '/vendor/reviews', icon: '⭐' },
   { id: 'settings', label: 'Settings', shortLabel: 'Settings', href: '/vendor/settings', icon: '⚙️' },
 ];
 
@@ -33,7 +33,6 @@ export const VendorShell: React.FC<VendorShellProps> = ({
   title,
   subtitle,
   active,
-  variant = 'default',
   actions,
   showBack,
   onBack,
@@ -41,17 +40,17 @@ export const VendorShell: React.FC<VendorShellProps> = ({
 }) => {
   const pathname = usePathname();
   const debugEnabled = isDebugClient();
-  const isKds = variant === 'kds';
 
   const isNavActive = (item: (typeof navItems)[number]) => {
     if (item.id === 'orders') return pathname.startsWith('/vendor/orders');
     if (item.id === 'menu') return pathname === '/vendor/menu';
     if (item.id === 'quick-edit') return pathname.startsWith('/vendor/menu/quick-edit');
+    if (item.id === 'reviews') return pathname.startsWith('/vendor/reviews');
     return pathname === item.href || (item.id === 'kds' && pathname === '/vendor');
   };
 
   return (
-    <div className={`min-h-screen flex ${isKds ? 'bg-slate-950' : 'app-surface'}`}>
+    <div className="min-h-screen flex app-surface">
       <aside className="hidden lg:flex lg:w-72 lg:flex-col lg:justify-between lg:border-r lg:border-slate-200/70 lg:bg-white/70 lg:backdrop-blur">
         <div className="p-6">
           <div className="flex items-center justify-between mb-8">
@@ -140,20 +139,12 @@ export const VendorShell: React.FC<VendorShellProps> = ({
           </div>
         </header>
 
-        <main
-          className={`flex-1 px-4 sm:px-6 lg:px-8 py-8 pb-24 lg:pb-8 app-grid animate-fade-up ${
-            isKds ? 'text-white' : ''
-          }`}
-        >
+        <main className="flex-1 px-4 sm:px-6 lg:px-8 py-8 pb-24 lg:pb-8 app-grid animate-fade-up">
           <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between mb-8">
             <div>
-              <h1 className={`text-3xl font-semibold ${isKds ? 'text-white' : 'text-slate-900'}`}>
-                {title}
-              </h1>
+              <h1 className="text-3xl font-semibold text-slate-900">{title}</h1>
               {subtitle && (
-                <p className={`text-sm mt-2 ${isKds ? 'text-slate-400' : 'text-slate-500'}`}>
-                  {subtitle}
-                </p>
+                <p className="text-sm mt-2 text-slate-500">{subtitle}</p>
               )}
             </div>
             {actions && <div className="flex gap-2">{actions}</div>}
