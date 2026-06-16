@@ -53,3 +53,58 @@ export interface SafetyProfile {
   preferences: PreferenceTag[];
   taxExempt: boolean;
 }
+
+// ─── Platform Rules Types ─────────────────────────────────────────
+
+export interface InventoryRules {
+  trackStock: boolean;
+  lowStockThreshold: number;
+  autoDisableAtZero: boolean;
+  requireDailyVerification: boolean;
+  verificationWindowHours: number;
+}
+
+export interface DeliveryTimingRules {
+  maxPrepTimeMinutes: number;
+  defaultDeliveryWindowMinutes: number;
+  orderCutoffTime: string;
+  advanceOrderMinHours: number;
+  vendorAcceptanceTimeoutMinutes: number;
+  lateDeliveryThresholdMinutes: number;
+}
+
+export interface ContractMinimumRules {
+  minimumOrderAmountCents: number;
+  minimumVendorSubOrderCents: number;
+  minimumMonthlyOrderCount: number;
+  minimumWeeklyMenuItems: number;
+  contractRenewalDays: number;
+}
+
+export interface PortionProtocolRules {
+  maxPortionsPerItem: number;
+  maxItemsPerOrder: number;
+  maxOrdersPerDay: number;
+  requirePortionJustification: boolean;
+  portionJustificationThreshold: number;
+  defaultServingSizeOz: number;
+  maxServingSizeOz: number;
+}
+
+export interface PlatformRules {
+  inventory: InventoryRules;
+  deliveryTiming: DeliveryTimingRules;
+  contractMinimums: ContractMinimumRules;
+  portionProtocols: PortionProtocolRules;
+  platformFeePercent: number;
+  deliveryRadiusKm: number;
+}
+
+export interface ContractTerms {
+  customMinimumOrderCents?: number;
+  customDeliveryRadiusKm?: number;
+  customPlatformFeePercent?: number;
+  contractStartDate?: Date;
+  contractEndDate?: Date;
+  isActive: boolean;
+}

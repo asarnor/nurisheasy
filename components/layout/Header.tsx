@@ -35,7 +35,7 @@ export const Header: React.FC<HeaderProps> = ({
             )}
           </div>
           
-          {showUserButton && (
+          {showUserButton && !debugEnabled && (
             <div className="flex items-center gap-4">
               <UserButton
                 afterSignOutUrl="/sign-in"

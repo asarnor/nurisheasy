@@ -11,6 +11,9 @@ export interface IMenuItem extends Document {
   lastVerifiedAt: Date;
   imageUrl?: string;
   category?: string;
+  stockQuantity?: number | null; // null = unlimited / not tracked
+  servingSizeOz?: number;
+  maxPortionsPerOrder?: number; // Per-item override for portion protocols
   createdAt: Date;
   updatedAt: Date;
 }
@@ -68,6 +71,21 @@ const MenuItemSchema: Schema = new Schema(
     },
     imageUrl: String,
     category: String,
+    stockQuantity: {
+      type: Number,
+      default: null,
+      min: 0,
+    },
+    servingSizeOz: {
+      type: Number,
+      default: null,
+      min: 0,
+    },
+    maxPortionsPerOrder: {
+      type: Number,
+      default: null,
+      min: 1,
+    },
   },
   {
     timestamps: true,

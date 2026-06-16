@@ -7,7 +7,7 @@ import { isDebugClient } from '@/lib/utils/debug-client';
 interface AdminShellProps {
   title: string;
   subtitle?: string;
-  active: 'dashboard' | 'triage' | 'users';
+  active: 'dashboard' | 'triage' | 'users' | 'platform-rules';
   actions?: React.ReactNode;
   children: React.ReactNode;
 }
@@ -16,6 +16,7 @@ const navItems = [
   { id: 'dashboard', label: 'Dashboard', href: '/admin/dashboard' },
   { id: 'triage', label: 'Triage', href: '/admin/triage' },
   { id: 'users', label: 'Users', href: '/admin/users' },
+  { id: 'platform-rules', label: 'Platform Rules', href: '/admin/platform-rules' },
 ];
 
 export const AdminShell: React.FC<AdminShellProps> = ({
@@ -44,7 +45,7 @@ export const AdminShell: React.FC<AdminShellProps> = ({
                   )}
                 </div>
               </div>
-              <UserButton afterSignOutUrl="/sign-in" />
+              {!debugEnabled && <UserButton afterSignOutUrl="/sign-in" />}
             </div>
             <nav className="space-y-2">
               {navItems.map((item) => (
@@ -84,7 +85,7 @@ export const AdminShell: React.FC<AdminShellProps> = ({
                   )}
                 </div>
               </div>
-              <UserButton afterSignOutUrl="/sign-in" />
+              {!debugEnabled && <UserButton afterSignOutUrl="/sign-in" />}
             </div>
             <div className="flex gap-2 overflow-x-auto px-4 pb-4">
               {navItems.map((item) => (

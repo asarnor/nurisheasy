@@ -4,8 +4,8 @@ import React, { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
-import { UserButton } from '@clerk/nextjs';
 import { apiFetch } from '@/lib/utils/api';
+import { isDebugClient } from '@/lib/utils/debug-client';
 
 interface OrderItem {
   name: string;
@@ -240,16 +240,9 @@ export default function KitchenDisplaySystemPage() {
             <h1 className="text-3xl font-semibold">Kitchen Display System</h1>
             <p className="text-sm text-slate-400">Live queue and allergy alerts</p>
           </div>
-          <UserButton 
-            afterSignOutUrl="/sign-in"
-            appearance={{
-              elements: {
-                avatarBox: 'w-10 h-10',
-                userButtonPopoverCard: 'bg-gray-800 border-gray-700',
-                userButtonPopoverActionButton: 'text-white hover:bg-gray-700',
-              },
-            }}
-          />
+          {!isDebugClient() && (
+            <span className="w-10 h-10 rounded-full bg-slate-700" />
+          )}
         </div>
         
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

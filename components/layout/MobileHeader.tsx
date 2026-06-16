@@ -46,14 +46,16 @@ export const MobileHeader: React.FC<MobileHeaderProps> = ({
             </span>
           )}
         </div>
-        <UserButton
-          afterSignOutUrl="/sign-in"
-          appearance={{
-            elements: {
-              avatarBox: 'w-8 h-8',
-            },
-          }}
-        />
+        {!debugEnabled && (
+          <UserButton
+            afterSignOutUrl="/sign-in"
+            appearance={{
+              elements: {
+                avatarBox: 'w-8 h-8',
+              },
+            }}
+          />
+        )}
       </div>
     </header>
   );

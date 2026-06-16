@@ -1,5 +1,6 @@
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
 
 const isPublicRoute = createRouteMatcher([
   '/', // Landing page - allow unauthenticated access
@@ -10,31 +11,34 @@ const isPublicRoute = createRouteMatcher([
   '/sign-up(.*)',
 ]);
 
-export default clerkMiddleware(async (auth, req) => {
-  // Allow public routes
+const debugEnabled =
+  process.env.NEXT_PUBLIC_DEBUG_MODE === 'true' ||
+  process.env.DEBUG_MODE === 'true';
+
+function debugMiddleware(req: NextRequest) {
+  return NextResponse.next();
+}
+
+const clerkHandler = clerkMiddleware(async (auth, req) => {
   if (isPublicRoute(req)) {
     return NextResponse.next();
   }
 
-  const debugEnabled =
-    process.env.NEXT_PUBLIC_DEBUG_MODE === 'true' ||
-    process.env.DEBUG_MODE === 'true';
-
-  if (debugEnabled && process.env.NODE_ENV !== 'production') {
-    return NextResponse.next();
-  }
-
-  // Protect all other routes
   const { userId } = await auth();
-  
+
   if (!userId) {
-    // Redirect to home page (landing page) instead of directly to sign-in
-    // This allows users to choose their role first
     return NextResponse.redirect(new URL('/', req.url));
   }
 
   return NextResponse.next();
 });
+
+export default function middleware(req: NextRequest) {
+  if (debugEnabled && process.env.NODE_ENV !== 'production') {
+    return debugMiddleware(req);
+  }
+  return clerkHandler(req, {} as any);
+}
 
 export const config = {
   matcher: [

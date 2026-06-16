@@ -16,6 +16,9 @@ const menuItemSchema = z.object({
   ingredients: z.array(z.string()).optional(),
   imageUrl: z.string().optional(),
   category: z.string().optional(),
+  stockQuantity: z.number().int().min(0).nullable().optional(),
+  servingSizeOz: z.number().min(0).nullable().optional(),
+  maxPortionsPerOrder: z.number().int().min(1).nullable().optional(),
 });
 
 /**
@@ -65,6 +68,9 @@ export async function GET(request: NextRequest) {
           imageUrl: item.imageUrl,
           category: item.category,
           isAvailable: item.isAvailable,
+          stockQuantity: item.stockQuantity ?? null,
+          servingSizeOz: item.servingSizeOz ?? null,
+          maxPortionsPerOrder: item.maxPortionsPerOrder ?? null,
         })),
       });
     }
