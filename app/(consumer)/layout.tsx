@@ -44,10 +44,6 @@ export default async function ConsumerLayout({
     organization = fallback.organization || organization;
   }
 
-  if (organization?.type === 'admin') {
-    redirect('/admin/dashboard');
-  }
-
   if (organization?.type === 'vendor') {
     redirect('/vendor/kds');
   }

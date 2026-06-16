@@ -106,6 +106,13 @@ export interface MockStore {
   users: MockUser[];
 }
 
+export type MockOrganizationUpdates = Partial<
+  Omit<MockOrganization, 'safetyProfile' | 'address'>
+> & {
+  safetyProfile?: Partial<NonNullable<MockOrganization['safetyProfile']>>;
+  address?: Partial<NonNullable<MockOrganization['address']>>;
+};
+
 const sumItems = (items: MockOrderItem[]) =>
   items.reduce((total, item) => total + item.price * item.quantity, 0);
 
@@ -545,17 +552,20 @@ const createMockStore = (): MockStore => {
   };
 };
 
-let mockStore: MockStore | null = null;
+declare global {
+  // eslint-disable-next-line no-var
+  var __SAFEPLATE_MOCK_STORE__: MockStore | undefined;
+}
 
 export const getMockStore = () => {
-  if (!mockStore) {
-    mockStore = createMockStore();
+  if (!globalThis.__SAFEPLATE_MOCK_STORE__) {
+    globalThis.__SAFEPLATE_MOCK_STORE__ = createMockStore();
   }
-  return mockStore;
+  return globalThis.__SAFEPLATE_MOCK_STORE__;
 };
 
 export const resetMockStore = () => {
-  mockStore = createMockStore();
+  globalThis.__SAFEPLATE_MOCK_STORE__ = createMockStore();
 };
 
 export const getMockVendorId = (preferredId?: string) => {
@@ -799,12 +809,34 @@ export const getMockOrganization = (role: MockRole, vendorId?: string) => {
 
 export const updateMockOrganization = (
   role: MockRole,
-  updates: Partial<MockOrganization>,
+  updates: MockOrganizationUpdates,
   vendorId?: string
 ) => {
   const organization = getMockOrganization(role, vendorId);
   if (!organization) return null;
 
-  Object.assign(organization, updates);
+  const { safetyProfile, address, ...baseUpdates } = updates;
+  Object.assign(organization, baseUpdates);
+
+  if (safetyProfile) {
+    organization.safetyProfile = {
+      criticalAllergens: organization.safetyProfile?.criticalAllergens || [],
+      preferences: organization.safetyProfile?.preferences || [],
+      taxExempt: organization.safetyProfile?.taxExempt || false,
+      ...safetyProfile,
+    };
+  }
+
+  if (address) {
+    organization.address = {
+      street: organization.address?.street || '',
+      city: organization.address?.city || '',
+      state: organization.address?.state || '',
+      zipCode: organization.address?.zipCode || '',
+      coordinates: organization.address?.coordinates,
+      ...address,
+    };
+  }
+
   return organization;
 };

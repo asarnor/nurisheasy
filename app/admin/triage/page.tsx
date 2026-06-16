@@ -1,5 +1,5 @@
 'use client';
 
-import AdminTriagePage from '@/app/(admin)/triage/page';
+import AdminTriagePage from '@/app/(admin)/triage/AdminTriageView';
 
 export default AdminTriagePage;

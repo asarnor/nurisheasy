@@ -83,6 +83,19 @@ export default async function Home() {
               </div>
             </a>
           </div>
+
+          <div className="text-center space-y-2">
+            <p className="text-sm text-gray-500">
+              Don&apos;t have an account?{' '}
+              <a href="/sign-up?role=consumer" className="text-green-600 hover:text-green-700 font-semibold">
+                Sign up as Group Home
+              </a>
+              {' or '}
+              <a href="/sign-up?role=vendor" className="text-green-600 hover:text-green-700 font-semibold">
+                Sign up as Vendor
+              </a>
+            </p>
+          </div>
         </div>
       </div>
     );
@@ -119,9 +132,7 @@ export default async function Home() {
     
     // Check organization type
     if (organization) {
-      if (organization.type === 'admin') {
-        redirect('/admin/dashboard');
-      } else if (organization.type === 'vendor') {
+      if (organization.type === 'vendor') {
         redirect('/vendor/kds');
       } else if (organization.type === 'consumer') {
         redirect('/marketplace');

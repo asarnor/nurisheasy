@@ -1,5 +1,5 @@
 'use client';
 
-import AdminDashboardPage from '@/app/(admin)/dashboard/page';
+import AdminDashboardPage from '@/app/(admin)/dashboard/AdminDashboardView';
 
 export default AdminDashboardPage;

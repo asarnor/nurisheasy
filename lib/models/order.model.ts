@@ -86,7 +86,6 @@ const OrderSchema: Schema = new Schema(
     paymentIntentId: {
       type: String,
       required: true,
-      index: true,
     },
     totalAmount: {
       type: Number,
