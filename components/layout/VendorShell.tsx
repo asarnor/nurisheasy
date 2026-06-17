@@ -4,7 +4,8 @@ import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { UserButton } from '@clerk/nextjs';
-import { isDebugClient, vendorPath } from '@/lib/utils/debug-client';
+import { isDebugClient, vendorPath, vendorSettingsPath } from '@/lib/utils/debug-client';
+import { VendorAccountPanel } from '@/components/vendor/VendorAccountPanel';
 
 export type VendorNavId = 'kds' | 'orders' | 'menu' | 'quick-edit' | 'reviews' | 'settings';
 
@@ -65,7 +66,7 @@ export const VendorShell: React.FC<VendorShellProps> = ({
                 )}
               </div>
             </div>
-            {!debugEnabled && <UserButton afterSignOutUrl="/sign-in" />}
+            {!debugEnabled && <UserButton afterSignOutUrl="/sign-in?role=vendor" />}
           </div>
           <nav className="space-y-2">
             {navItems.map((item) => (
@@ -89,15 +90,18 @@ export const VendorShell: React.FC<VendorShellProps> = ({
             ))}
           </nav>
         </div>
-        <div className="p-6 text-xs text-slate-400">
-          Manage orders, menu, and availability
+        <div className="p-6 border-t border-slate-200/70">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-3">
+            Account
+          </p>
+          <VendorAccountPanel compact />
         </div>
       </aside>
 
       <div className="flex min-h-screen flex-1 flex-col">
         <header className="lg:hidden border-b border-slate-200/70 bg-white/80 backdrop-blur">
           <div className="flex items-center justify-between px-4 py-4">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 min-w-0">
               {showBack && onBack && (
                 <button
                   type="button"
@@ -120,7 +124,17 @@ export const VendorShell: React.FC<VendorShellProps> = ({
                 </div>
               </div>
             </div>
-            {!debugEnabled && <UserButton afterSignOutUrl="/sign-in" />}
+            <div className="flex shrink-0 items-center gap-2">
+              {debugEnabled && (
+                <Link
+                  href={vendorSettingsPath('account')}
+                  className="rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                >
+                  Account
+                </Link>
+              )}
+              {!debugEnabled && <UserButton afterSignOutUrl="/sign-in?role=vendor" />}
+            </div>
           </div>
           <div className="flex gap-2 overflow-x-auto px-4 pb-4">
             {navItems.map((item) => (

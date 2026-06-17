@@ -6,6 +6,16 @@ import {
   DEFAULT_CONTRACT_OPTIONS,
   type OrderContractOptions,
 } from '@/lib/contract-options';
+import {
+  DEFAULT_VENDOR_SETTINGS,
+  mergeVendorSettings,
+  type VendorSettings,
+} from '@/lib/vendor-settings';
+import {
+  DEFAULT_CONSUMER_SETTINGS,
+  mergeConsumerSettings,
+  type ConsumerSettings,
+} from '@/lib/consumer-settings';
 
 export type MockRole = 'consumer' | 'vendor' | 'admin';
 
@@ -29,6 +39,8 @@ export interface MockOrganization {
     };
   };
   stripeAccountId?: string;
+  vendorSettings?: Partial<VendorSettings>;
+  consumerSettings?: Partial<ConsumerSettings>;
 }
 
 export interface MockMenuItem {
@@ -165,6 +177,33 @@ const createMockStore = (): MockStore => {
         coordinates: { lat: 30.2672, lng: -97.7431 },
       },
       stripeAccountId: 'acct_mock_mommas',
+      vendorSettings: {
+        contactName: 'Maria Lopez',
+        contactEmail: 'kitchen@mommaswholefoods.com',
+        contactPhone: '(512) 555-0142',
+        description:
+          'Whole-food meals for group homes — breakfast through dinner, with allergen-aware prep.',
+        offersPickup: true,
+        offersDelivery: true,
+        deliveryRadiusKm: 20,
+        preparationDays: [1, 3, 5],
+        mealPeriods: ['breakfast', 'lunch', 'dinner'],
+        orderCutoffTime: '18:00',
+        advanceOrderMinHours: 24,
+        defaultPrepTimeMinutes: 45,
+        autoAcceptOrders: false,
+        certifications: ['ORGANIC', 'LOCALLY_SOURCED'],
+        allergenPolicyNotes:
+          'Separate prep surfaces for top-9 allergens. Cross-contact protocols documented daily.',
+        ingredientSourcingNotes: 'Produce from Central Texas farms; halal-friendly options available.',
+        minimumOrderCents: 2500,
+        deliveryFeeCents: DELIVERY_FEE_CENTS,
+        acceptingNewContracts: true,
+        notifyNewOrder: true,
+        notifyLateAcceptance: true,
+        notifyNewReview: true,
+        notifyContractEnding: true,
+      },
     },
     {
       id: 'vendor_cedar',
@@ -178,6 +217,22 @@ const createMockStore = (): MockStore => {
         coordinates: { lat: 30.2500, lng: -97.7500 },
       },
       stripeAccountId: 'acct_mock_cedar',
+      vendorSettings: {
+        contactName: 'Amir Hassan',
+        contactEmail: 'orders@cedarandspice.com',
+        contactPhone: '(512) 555-0198',
+        description: 'Mediterranean-inspired meals with halal certification and low-sodium options.',
+        offersPickup: true,
+        offersDelivery: false,
+        deliveryRadiusKm: 10,
+        preparationDays: [2, 4],
+        mealPeriods: ['lunch', 'dinner'],
+        orderCutoffTime: '19:00',
+        defaultPrepTimeMinutes: 50,
+        certifications: ['HALAL'],
+        minimumOrderCents: 3000,
+        acceptingNewContracts: true,
+      },
     },
   ];
 
@@ -196,6 +251,13 @@ const createMockStore = (): MockStore => {
       state: 'TX',
       zipCode: '78702',
       coordinates: { lat: 30.2610, lng: -97.7300 },
+    },
+    consumerSettings: {
+      notifyOrderUpdates: true,
+      notifyDeliveryReminders: true,
+      notifyContractRenewal: true,
+      notifyReviewReminders: true,
+      notifyMarketing: false,
     },
   };
 
@@ -654,6 +716,16 @@ export const getMockStore = () => {
     store.reviews = createMockStore().reviews;
   }
 
+  store.organizations.vendors.forEach((vendor) => {
+    if (!vendor.vendorSettings) {
+      vendor.vendorSettings = { ...DEFAULT_VENDOR_SETTINGS };
+    }
+  });
+
+  if (!store.organizations.consumer.consumerSettings) {
+    store.organizations.consumer.consumerSettings = { ...DEFAULT_CONSUMER_SETTINGS };
+  }
+
   return store;
 };
 
@@ -1035,7 +1107,90 @@ export const updateMockOrganization = (
   return organization;
 };
 
-export const getMockReviews = (filters?: { vendorId?: string; orderId?: string }) => {
+export const getMockVendorSettings = (vendorId?: string) => {
+  const organization = getMockOrganization('vendor', vendorId);
+  if (!organization) return null;
+
+  return {
+    id: organization.id,
+    name: organization.name,
+    address: organization.address,
+    stripeAccountId: organization.stripeAccountId,
+    settings: mergeVendorSettings(organization.vendorSettings),
+  };
+};
+
+export const updateMockVendorSettings = (
+  vendorId: string | undefined,
+  updates: {
+    name?: string;
+    address?: Partial<NonNullable<MockOrganization['address']>>;
+    settings?: Partial<VendorSettings>;
+  }
+) => {
+  const organization = getMockOrganization('vendor', vendorId);
+  if (!organization) return null;
+
+  if (updates.name) {
+    organization.name = updates.name;
+  }
+
+  if (updates.address) {
+    organization.address = {
+      street: organization.address?.street || '',
+      city: organization.address?.city || '',
+      state: organization.address?.state || '',
+      zipCode: organization.address?.zipCode || '',
+      coordinates: organization.address?.coordinates,
+      ...updates.address,
+    };
+  }
+
+  if (updates.settings) {
+    organization.vendorSettings = {
+      ...mergeVendorSettings(organization.vendorSettings),
+      ...updates.settings,
+    };
+  }
+
+  return getMockVendorSettings(organization.id);
+};
+
+export const getMockConsumerSettings = () => {
+  const organization = getMockOrganization('consumer');
+  if (!organization) return null;
+
+  return {
+    organization: { id: organization.id, name: organization.name },
+    settings: mergeConsumerSettings(organization.consumerSettings),
+  };
+};
+
+export const updateMockConsumerSettings = (updates?: Partial<ConsumerSettings>) => {
+  const organization = getMockOrganization('consumer');
+  if (!organization) return null;
+
+  if (updates) {
+    organization.consumerSettings = {
+      ...mergeConsumerSettings(organization.consumerSettings),
+      ...updates,
+      defaultContractOptions: updates.defaultContractOptions
+        ? {
+            ...mergeConsumerSettings(organization.consumerSettings).defaultContractOptions,
+            ...updates.defaultContractOptions,
+          }
+        : mergeConsumerSettings(organization.consumerSettings).defaultContractOptions,
+    };
+  }
+
+  return getMockConsumerSettings();
+};
+
+export const getMockReviews = (filters?: {
+  vendorId?: string;
+  orderId?: string;
+  consumerId?: string;
+}) => {
   const store = getMockStore();
   let reviews = [...(store.reviews || [])];
 
@@ -1045,6 +1200,10 @@ export const getMockReviews = (filters?: { vendorId?: string; orderId?: string }
 
   if (filters?.orderId) {
     reviews = reviews.filter((review) => review.orderId === filters.orderId);
+  }
+
+  if (filters?.consumerId) {
+    reviews = reviews.filter((review) => review.consumerId === filters.consumerId);
   }
 
   return reviews.sort(

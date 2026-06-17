@@ -25,3 +25,17 @@ export const withDebugParams = (url: string, role?: DebugRole) => {
 
 export const vendorPath = (path: string) =>
   isDebugClient() ? `${path}?debug=1&debugRole=vendor` : path;
+
+export const vendorSettingsPath = (tab?: string) => {
+  const base = vendorPath('/vendor/settings');
+  if (!tab) return base;
+  return `${base}${base.includes('?') ? '&' : '?'}tab=${tab}`;
+};
+
+export const consumerPath = (path: string) =>
+  isDebugClient() ? `${path}?debug=1&debugRole=consumer` : path;
+
+export const consumerAccountPath = (section?: string) => {
+  const base = consumerPath(section ? `/account/${section}` : '/account');
+  return base;
+};

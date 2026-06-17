@@ -4,11 +4,11 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
-import { MobileHeader } from '@/components/layout/MobileHeader';
-import { Header } from '@/components/layout/Header';
+import { ConsumerShell } from '@/components/layout/ConsumerShell';
 import { ContractCheckoutOptions } from '@/components/consumer/ContractCheckoutOptions';
 import { loadStripe } from '@stripe/stripe-js';
 import { apiFetch } from '@/lib/utils/api';
+import { consumerPath } from '@/lib/utils/debug-client';
 import {
   DEFAULT_CONTRACT_OPTIONS,
   DELIVERY_FEE_CENTS,
@@ -38,6 +38,24 @@ export default function CartPage() {
     const savedCart = localStorage.getItem('cart');
     if (savedCart) {
       setCart(JSON.parse(savedCart));
+    }
+
+    const savedDefaults = localStorage.getItem('defaultContractOptions');
+    if (savedDefaults) {
+      try {
+        setContractOptions(JSON.parse(savedDefaults));
+      } catch {
+        // ignore invalid saved defaults
+      }
+    } else {
+      apiFetch('/api/consumer/settings')
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (data?.settings?.defaultContractOptions) {
+            setContractOptions(data.settings.defaultContractOptions);
+          }
+        })
+        .catch(() => undefined);
     }
   }, []);
 
@@ -99,11 +117,11 @@ export default function CartPage() {
         if (stripe) {
           localStorage.removeItem('cart');
           setCart([]);
-          router.push(`/orders/${orderData.orderId}`);
+          router.push(consumerPath(`/orders/${orderData.orderId}`));
         } else {
           localStorage.removeItem('cart');
           setCart([]);
-          router.push(`/orders/${orderData.orderId}`);
+          router.push(consumerPath(`/orders/${orderData.orderId}`));
         }
       }
     } catch (error) {
@@ -134,21 +152,19 @@ export default function CartPage() {
   );
 
   return (
-    <div className="min-h-screen app-surface">
-      <MobileHeader title="Cart" showBack onBack={() => router.back()} />
-
-      <div className="hidden md:block">
-        <Header title="Shopping Cart" />
-      </div>
-
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 app-grid animate-fade-up">
-        <h1 className="text-3xl font-semibold mb-6 hidden md:block">Shopping Cart</h1>
-
+    <ConsumerShell
+      active="cart"
+      title="Shopping cart"
+      subtitle="Review items, set contract terms, and place your order."
+      showBack
+      onBack={() => router.push(consumerPath('/marketplace'))}
+    >
+      <div className="max-w-4xl">
         {cart.length === 0 ? (
           <Card className="text-center py-12">
             <p className="text-slate-500 mb-4">Your cart is empty</p>
-            <Button onClick={() => router.push('/marketplace')}>
-              Browse Marketplace
+            <Button onClick={() => router.push(consumerPath('/marketplace'))}>
+              Browse marketplace
             </Button>
           </Card>
         ) : (
@@ -243,6 +259,6 @@ export default function CartPage() {
           </div>
         )}
       </div>
-    </div>
+    </ConsumerShell>
   );
 }

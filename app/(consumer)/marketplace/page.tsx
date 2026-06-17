@@ -5,9 +5,10 @@ import { MenuItemCard } from '@/components/consumer/MenuItemCard';
 import { MultiVendorCart } from '@/components/consumer/MultiVendorCart';
 import { DietaryFilter } from '@/components/consumer/DietaryFilter';
 import { MealPeriodFilter } from '@/components/consumer/MealPeriodFilter';
-import { Header } from '@/components/layout/Header';
+import { ConsumerShell } from '@/components/layout/ConsumerShell';
 import { useRouter } from 'next/navigation';
 import { apiFetch } from '@/lib/utils/api';
+import { consumerPath } from '@/lib/utils/debug-client';
 import type { MealCategory } from '@/lib/meal-categories';
 
 interface MenuItem {
@@ -133,7 +134,7 @@ export default function MarketplacePage() {
   };
 
   const handleCheckout = () => {
-    router.push('/cart');
+    router.push(consumerPath('/cart'));
   };
 
   const getCartItemQuantity = (id: string) => {
@@ -144,97 +145,60 @@ export default function MarketplacePage() {
   const activeFilters = filter !== 'all' ? [filter] : [];
 
   return (
-    <div className="min-h-screen app-surface">
-      {/* Header */}
-      <Header title="SafePlate - Marketplace" />
+    <ConsumerShell
+      active="marketplace"
+      title="Marketplace"
+      subtitle="Browse vendor menus curated for your dietary requirements."
+    >
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+        <div className="lg:col-span-3 space-y-6">
+          <MealPeriodFilter value={mealPeriod} onChange={setMealPeriod} />
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-24 md:pb-8 app-grid animate-fade-up">
-        <div className="mb-6 flex flex-col gap-2">
-          <h1 className="text-3xl font-semibold text-slate-900">Marketplace</h1>
-          <p className="text-sm text-slate-500">
-            Browse vendor menus curated for your dietary requirements.
-          </p>
+          <DietaryFilter
+            value={filter}
+            onChange={setFilter}
+            activeFilters={activeFilters}
+          />
+
+          {loading ? (
+            <div className="text-center py-12">
+              <p className="text-slate-500">Loading menu items...</p>
+            </div>
+          ) : menuItems.length === 0 ? (
+            <div className="text-center py-12">
+              <p className="text-slate-500">No menu items available for this meal period</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+              {menuItems.map((item) => (
+                <MenuItemCard
+                  key={item.id}
+                  id={item.id}
+                  name={item.name}
+                  price={item.price}
+                  rating={4.5}
+                  imageUrl={item.displayImageUrl || item.imageUrl}
+                  vendorName={item.vendorName}
+                  allergenTags={item.allergenTags}
+                  quantity={getCartItemQuantity(item.id)}
+                  onQuantityChange={handleQuantityChange}
+                  onAddToCart={handleAddToCart}
+                />
+              ))}
+            </div>
+          )}
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-          {/* Main Content */}
-          <div className="lg:col-span-3 space-y-6">
-            <MealPeriodFilter value={mealPeriod} onChange={setMealPeriod} />
-
-            <DietaryFilter
-              value={filter}
-              onChange={setFilter}
-              activeFilters={activeFilters}
+        <div className="lg:col-span-1">
+          <div className="sticky top-6">
+            <MultiVendorCart
+              items={cart}
+              onCheckout={handleCheckout}
+              onRemoveItem={handleRemoveFromCart}
             />
-
-            {loading ? (
-              <div className="text-center py-12">
-                <p className="text-slate-500">Loading menu items...</p>
-              </div>
-            ) : menuItems.length === 0 ? (
-              <div className="text-center py-12">
-                <p className="text-slate-500">No menu items available for this meal period</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-                {menuItems.map((item) => (
-                  <MenuItemCard
-                    key={item.id}
-                    id={item.id}
-                    name={item.name}
-                    price={item.price}
-                    rating={4.5}
-                    imageUrl={item.displayImageUrl || item.imageUrl}
-                    vendorName={item.vendorName}
-                    allergenTags={item.allergenTags}
-                    quantity={getCartItemQuantity(item.id)}
-                    onQuantityChange={handleQuantityChange}
-                    onAddToCart={handleAddToCart}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Cart Sidebar */}
-          <div className="lg:col-span-1">
-            <div className="sticky top-6">
-              <MultiVendorCart
-                items={cart}
-                onCheckout={handleCheckout}
-                onRemoveItem={handleRemoveFromCart}
-              />
-            </div>
           </div>
         </div>
       </div>
-
-      {/* Mobile Bottom Navigation */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur border-t border-slate-200 md:hidden">
-        <div className="flex justify-around py-2">
-          <button
-            onClick={() => router.push('/marketplace')}
-            className="flex flex-col items-center p-2 text-emerald-600"
-          >
-            <span className="text-2xl">🏠</span>
-            <span className="text-xs">Home</span>
-          </button>
-          <button
-            onClick={() => router.push('/orders')}
-            className="flex flex-col items-center p-2 text-slate-600"
-          >
-            <span className="text-2xl">📦</span>
-            <span className="text-xs">Orders</span>
-          </button>
-          <button
-            onClick={() => router.push('/profile')}
-            className="flex flex-col items-center p-2 text-slate-600"
-          >
-            <span className="text-2xl">👤</span>
-            <span className="text-xs">Profile</span>
-          </button>
-        </div>
-      </nav>
-    </div>
+    </ConsumerShell>
   );
 }

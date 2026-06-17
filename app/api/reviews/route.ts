@@ -8,6 +8,7 @@ import { shouldUseMockData, getDebugRoleFromRequest } from '@/lib/utils/debug';
 import {
   createMockReview,
   getMockReviews,
+  getMockStore,
   getMockVendorId,
 } from '@/lib/mock-data';
 
@@ -33,7 +34,10 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
       }
 
-      const reviews = getMockReviews({ vendorId, orderId });
+      const store = getMockStore();
+      const consumerId =
+        role === 'consumer' ? store.organizations.consumer.id : undefined;
+      const reviews = getMockReviews({ vendorId, orderId, consumerId });
       return NextResponse.json({ reviews });
     }
 

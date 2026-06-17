@@ -6,9 +6,9 @@ import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { VendorReviewForm } from '@/components/consumer/VendorReviewForm';
 import { ContractOrderSummary } from '@/components/orders/ContractOrderSummary';
+import { ConsumerShell } from '@/components/layout/ConsumerShell';
 import { apiFetch } from '@/lib/utils/api';
-import { MobileHeader } from '@/components/layout/MobileHeader';
-import { Header } from '@/components/layout/Header';
+import { consumerPath } from '@/lib/utils/debug-client';
 import type { FulfillmentMethod } from '@/lib/contract-options';
 import type { MealCategory } from '@/lib/meal-categories';
 
@@ -142,159 +142,155 @@ export default function OrderTrackingPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen app-surface flex items-center justify-center">
+      <ConsumerShell active="orders" title="Order details" subtitle="Loading order...">
         <p className="text-slate-500">Loading order...</p>
-      </div>
+      </ConsumerShell>
     );
   }
 
   if (!order) {
     return (
-      <div className="min-h-screen app-surface flex items-center justify-center">
-        <Card className="text-center py-12">
+      <ConsumerShell
+        active="orders"
+        title="Order not found"
+        showBack
+        onBack={() => router.push(consumerPath('/orders'))}
+      >
+        <Card className="text-center py-12 max-w-lg">
           <p className="text-slate-500 mb-4">Order not found</p>
           <button
-            onClick={() => router.push('/orders')}
+            type="button"
+            onClick={() => router.push(consumerPath('/orders'))}
             className="text-emerald-600 hover:text-emerald-700 font-semibold"
           >
-            View All Orders
+            View all orders
           </button>
         </Card>
-      </div>
+      </ConsumerShell>
     );
   }
 
   return (
-    <div className="min-h-screen app-surface">
-      <MobileHeader title="Order Details" showBack onBack={() => router.back()} />
-      <div className="hidden md:block">
-        <Header title="Order Details" />
-      </div>
+    <ConsumerShell
+      active="orders"
+      title={`Order #${orderId.slice(-8)}`}
+      subtitle={`Placed on ${new Date(order.createdAt).toLocaleString()}`}
+      showBack
+      onBack={() => router.push(consumerPath('/orders'))}
+    >
+      <div className="max-w-4xl space-y-6">
+        <ContractOrderSummary
+          order={{
+            consumerName: getConsumerName(order),
+            contractDurationMonths: order.contractDurationMonths,
+            preparationDayOfWeek: order.preparationDayOfWeek,
+            mealPeriods: order.mealPeriods,
+            fulfillmentMethod: order.fulfillmentMethod,
+            deliveryFeeCents: order.deliveryFeeCents,
+            contractStartDate: order.contractStartDate ?? order.createdAt,
+            contractEndDate: order.contractEndDate,
+          }}
+        />
 
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 app-grid animate-fade-up">
-        <div className="mb-6">
-          <h1 className="text-3xl font-semibold">Order #{orderId.slice(-8)}</h1>
-          <p className="text-slate-500 mt-2">
-            Placed on {new Date(order.createdAt).toLocaleString()}
-          </p>
-        </div>
+        {order.subOrders.map((subOrder, index) => {
+          const timeline = getStatusTimeline(subOrder);
+          const vendorId = getVendorId(subOrder);
+          const existingReview = getReviewForVendor(vendorId);
 
-        <div className="mb-6">
-          <ContractOrderSummary
-            order={{
-              consumerName: getConsumerName(order),
-              contractDurationMonths: order.contractDurationMonths,
-              preparationDayOfWeek: order.preparationDayOfWeek,
-              mealPeriods: order.mealPeriods,
-              fulfillmentMethod: order.fulfillmentMethod,
-              deliveryFeeCents: order.deliveryFeeCents,
-              contractStartDate: order.contractStartDate ?? order.createdAt,
-              contractEndDate: order.contractEndDate,
-            }}
-          />
-        </div>
+          return (
+            <Card key={index} className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-semibold">{getVendorName(subOrder)}</h2>
+                <Badge variant={getStatusColor(subOrder.status) as 'success' | 'warning' | 'danger' | 'info'}>
+                  {subOrder.status}
+                </Badge>
+              </div>
 
-        <div className="space-y-6">
-          {order.subOrders.map((subOrder, index) => {
-            const timeline = getStatusTimeline(subOrder);
-            const vendorId = getVendorId(subOrder);
-            const existingReview = getReviewForVendor(vendorId);
-
-            return (
-              <Card key={index} className="p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-xl font-semibold">{getVendorName(subOrder)}</h2>
-                  <Badge variant={getStatusColor(subOrder.status) as any}>
-                    {subOrder.status}
-                  </Badge>
-                </div>
-
-                <div className="mb-6">
-                  <div className="flex items-center justify-between">
-                    {timeline.map((step, idx) => (
-                      <div key={idx} className="flex-1 flex flex-col items-center">
-                        <div
-                          className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                            step.completed
-                              ? 'bg-emerald-600 text-white'
-                              : 'bg-slate-200 text-slate-500'
-                          } ${step.current ? 'ring-2 ring-emerald-500' : ''}`}
-                        >
-                          {step.completed ? '✓' : idx + 1}
-                        </div>
-                        <span
-                          className={`text-xs mt-2 text-center ${
-                            step.completed ? 'text-emerald-600 font-medium' : 'text-slate-500'
-                          }`}
-                        >
-                          {step.status}
-                        </span>
+              <div className="mb-6">
+                <div className="flex items-center justify-between">
+                  {timeline.map((step, idx) => (
+                    <div key={idx} className="flex-1 flex flex-col items-center">
+                      <div
+                        className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                          step.completed
+                            ? 'bg-emerald-600 text-white'
+                            : 'bg-slate-200 text-slate-500'
+                        } ${step.current ? 'ring-2 ring-emerald-500' : ''}`}
+                      >
+                        {step.completed ? '✓' : idx + 1}
                       </div>
-                    ))}
-                  </div>
+                      <span
+                        className={`text-xs mt-2 text-center ${
+                          step.completed ? 'text-emerald-600 font-medium' : 'text-slate-500'
+                        }`}
+                      >
+                        {step.status}
+                      </span>
+                    </div>
+                  ))}
                 </div>
+              </div>
 
-                <div className="border-t border-slate-200 pt-4">
-                  <h3 className="font-medium mb-3">Items:</h3>
-                  <div className="space-y-2">
-                    {subOrder.items.map((item, itemIdx) => (
-                      <div key={itemIdx} className="flex justify-between text-sm">
-                        <span>
-                          {item.name} × {item.quantity}
-                        </span>
-                        <span className="font-medium">
-                          ${((item.price * item.quantity) / 100).toFixed(2)}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="mt-4 pt-4 border-t border-slate-200 flex justify-between font-semibold">
-                    <span>Subtotal:</span>
-                    <span>${(subOrder.vendorTotal / 100).toFixed(2)}</span>
-                  </div>
+              <div className="border-t border-slate-200 pt-4">
+                <h3 className="font-medium mb-3">Items:</h3>
+                <div className="space-y-2">
+                  {subOrder.items.map((item, itemIdx) => (
+                    <div key={itemIdx} className="flex justify-between text-sm">
+                      <span>
+                        {item.name} × {item.quantity}
+                      </span>
+                      <span className="font-medium">
+                        ${((item.price * item.quantity) / 100).toFixed(2)}
+                      </span>
+                    </div>
+                  ))}
                 </div>
-
-                {subOrder.acceptedAt && (
-                  <p className="text-sm text-slate-500 mt-4">
-                    Accepted at: {new Date(subOrder.acceptedAt).toLocaleString()}
-                  </p>
-                )}
-
-                {subOrder.status === 'DELIVERED' && (
-                  <div className="mt-6 border-t border-slate-200 pt-4">
-                    <VendorReviewForm
-                      orderId={order._id}
-                      vendorId={vendorId}
-                      vendorName={getVendorName(subOrder)}
-                      fulfillmentMethod={order.fulfillmentMethod || 'pickup'}
-                      existingRating={existingReview?.rating}
-                      existingComment={existingReview?.comment}
-                      onSubmitted={fetchOrder}
-                    />
-                  </div>
-                )}
-              </Card>
-            );
-          })}
-
-          <Card className="p-6 bg-slate-50/70">
-            <div className="space-y-2 mb-4">
-              {order.deliveryFeeCents ? (
-                <div className="flex justify-between text-sm text-slate-600">
-                  <span>Delivery fee</span>
-                  <span>${(order.deliveryFeeCents / 100).toFixed(2)}</span>
+                <div className="mt-4 pt-4 border-t border-slate-200 flex justify-between font-semibold">
+                  <span>Subtotal:</span>
+                  <span>${(subOrder.vendorTotal / 100).toFixed(2)}</span>
                 </div>
-              ) : null}
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-xl font-semibold">Order Total</span>
-              <span className="text-3xl font-semibold">
-                ${(order.totalAmount / 100).toFixed(2)}
-              </span>
-            </div>
-          </Card>
-        </div>
+              </div>
+
+              {subOrder.acceptedAt && (
+                <p className="text-sm text-slate-500 mt-4">
+                  Accepted at: {new Date(subOrder.acceptedAt).toLocaleString()}
+                </p>
+              )}
+
+              {subOrder.status === 'DELIVERED' && (
+                <div className="mt-6 border-t border-slate-200 pt-4">
+                  <VendorReviewForm
+                    orderId={order._id}
+                    vendorId={vendorId}
+                    vendorName={getVendorName(subOrder)}
+                    fulfillmentMethod={order.fulfillmentMethod || 'pickup'}
+                    existingRating={existingReview?.rating}
+                    existingComment={existingReview?.comment}
+                    onSubmitted={fetchOrder}
+                  />
+                </div>
+              )}
+            </Card>
+          );
+        })}
+
+        <Card className="p-6 bg-slate-50/70">
+          <div className="space-y-2 mb-4">
+            {order.deliveryFeeCents ? (
+              <div className="flex justify-between text-sm text-slate-600">
+                <span>Delivery fee</span>
+                <span>${(order.deliveryFeeCents / 100).toFixed(2)}</span>
+              </div>
+            ) : null}
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-xl font-semibold">Order Total</span>
+            <span className="text-3xl font-semibold">
+              ${(order.totalAmount / 100).toFixed(2)}
+            </span>
+          </div>
+        </Card>
       </div>
-    </div>
+    </ConsumerShell>
   );
 }
