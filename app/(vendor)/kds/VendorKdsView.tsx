@@ -1,10 +1,12 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { apiFetch } from '@/lib/utils/api';
+import { vendorPath } from '@/lib/utils/debug-client';
 import { VendorShell } from '@/components/layout/VendorShell';
 
 interface OrderItem {
@@ -72,6 +74,9 @@ const columnConfig: Record<
 };
 
 export default function KitchenDisplaySystemPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const showWelcome = searchParams.get('welcome') === '1';
   const [newOrders, setNewOrders] = useState<SubOrder[]>([]);
   const [toPrep, setToPrep] = useState<SubOrder[]>([]);
   const [ready, setReady] = useState<SubOrder[]>([]);
@@ -298,6 +303,28 @@ export default function KitchenDisplaySystemPage() {
       subtitle="Live queue and allergy alerts"
     >
       <div className="max-w-7xl mx-auto">
+        {showWelcome && (
+          <Card className="mb-6 border-emerald-200 bg-emerald-50 p-5">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-emerald-900">
+                  You&apos;re live on SafePlate
+                </h2>
+                <p className="mt-1 text-sm text-emerald-800">
+                  Your kitchen is now visible to group homes. New orders will appear here in real
+                  time. Connect Stripe in Settings when you&apos;re ready to receive payouts.
+                </p>
+              </div>
+              <Button
+                variant="secondary"
+                className="shrink-0"
+                onClick={() => router.replace(vendorPath('/vendor/kds'))}
+              >
+                Dismiss
+              </Button>
+            </div>
+          </Card>
+        )}
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
           {columns.map(({ key, orders }) => {
             const config = columnConfig[key];

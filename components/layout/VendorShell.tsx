@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import { UserButton } from '@clerk/nextjs';
 import { isDebugClient, vendorPath, vendorSettingsPath } from '@/lib/utils/debug-client';
 import { VendorAccountPanel } from '@/components/vendor/VendorAccountPanel';
+import { VendorOnboardingChecklist } from '@/components/vendor/VendorOnboardingChecklist';
 
 export type VendorNavId = 'kds' | 'orders' | 'menu' | 'quick-edit' | 'reviews' | 'settings';
 
@@ -163,6 +164,7 @@ export const VendorShell: React.FC<VendorShellProps> = ({
             </div>
             {actions && <div className="flex gap-2">{actions}</div>}
           </div>
+          <VendorOnboardingChecklist />
           {children}
         </main>
 

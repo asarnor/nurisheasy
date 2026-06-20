@@ -11,6 +11,7 @@ import {
   mergeVendorSettings,
   type VendorSettings,
 } from '@/lib/vendor-settings';
+import { evaluateVendorOnboarding } from '@/lib/vendor-onboarding';
 import {
   DEFAULT_CONSUMER_SETTINGS,
   mergeConsumerSettings,
@@ -41,6 +42,8 @@ export interface MockOrganization {
   stripeAccountId?: string;
   vendorSettings?: Partial<VendorSettings>;
   consumerSettings?: Partial<ConsumerSettings>;
+  marketplaceVisible?: boolean;
+  onboardingCompletedAt?: string;
 }
 
 export interface MockMenuItem {
@@ -164,6 +167,8 @@ const withTotal = (items: MockOrderItem[]) => ({
 });
 
 const createMockStore = (): MockStore => {
+  const now = Date.now();
+
   const vendors: MockOrganization[] = [
     {
       id: 'vendor_mommas',
@@ -177,6 +182,8 @@ const createMockStore = (): MockStore => {
         coordinates: { lat: 30.2672, lng: -97.7431 },
       },
       stripeAccountId: 'acct_mock_mommas',
+      marketplaceVisible: true,
+      onboardingCompletedAt: new Date(now - 1000 * 60 * 60 * 24 * 30).toISOString(),
       vendorSettings: {
         contactName: 'Maria Lopez',
         contactEmail: 'kitchen@mommaswholefoods.com',
@@ -217,6 +224,8 @@ const createMockStore = (): MockStore => {
         coordinates: { lat: 30.2500, lng: -97.7500 },
       },
       stripeAccountId: 'acct_mock_cedar',
+      marketplaceVisible: true,
+      onboardingCompletedAt: new Date(now - 1000 * 60 * 60 * 24 * 14).toISOString(),
       vendorSettings: {
         contactName: 'Amir Hassan',
         contactEmail: 'orders@cedarandspice.com',
@@ -502,8 +511,6 @@ const createMockStore = (): MockStore => {
     },
   ];
 
-  const now = Date.now();
-
   // Breakfast order — Tommy's orders 20 servings for morning
   const breakfastOrder = withTotal([
     { menuItemId: 'menu_mommas_b1', name: 'Farm Fresh Scrambled Eggs & Toast', quantity: 10, price: 799 },
@@ -720,6 +727,12 @@ export const getMockStore = () => {
     if (!vendor.vendorSettings) {
       vendor.vendorSettings = { ...DEFAULT_VENDOR_SETTINGS };
     }
+    if (vendor.marketplaceVisible === undefined) {
+      vendor.marketplaceVisible = true;
+    }
+    if (!vendor.onboardingCompletedAt && vendor.marketplaceVisible !== false) {
+      vendor.onboardingCompletedAt = new Date().toISOString();
+    }
   });
 
   if (!store.organizations.consumer.consumerSettings) {
@@ -739,6 +752,12 @@ export const getMockVendorId = (preferredId?: string) => {
     const match = store.organizations.vendors.find((vendor) => vendor.id === preferredId);
     if (match) return match.id;
   }
+
+  const onboardingVendor = store.organizations.vendors.find(
+    (vendor) => vendor.id === 'vendor_new_kitchen'
+  );
+  if (onboardingVendor) return onboardingVendor.id;
+
   return store.organizations.vendors[0].id;
 };
 
@@ -750,7 +769,11 @@ export const getMockMenuItems = (role: MockRole, vendorParam?: string) => {
     return store.menuItems.filter((item) => item.vendorId === vendorId);
   }
 
-  let items = store.menuItems.filter((item) => item.isAvailable);
+  let items = store.menuItems.filter((item) => {
+    if (!item.isAvailable) return false;
+    const vendor = store.organizations.vendors.find((entry) => entry.id === item.vendorId);
+    return vendor?.marketplaceVisible !== false;
+  });
   if (vendorParam && vendorParam !== 'current') {
     items = items.filter((item) => item.vendorId === vendorParam);
   }
@@ -1064,7 +1087,10 @@ export const refundMockSubOrder = (orderId: string, subOrderIndex: number) => {
 export const getMockOrganization = (role: MockRole, vendorId?: string) => {
   const store = getMockStore();
   if (role === 'vendor') {
-    const id = getMockVendorId(vendorId);
+    if (vendorId) {
+      return store.organizations.vendors.find((entry) => entry.id === vendorId) ?? null;
+    }
+    const id = getMockVendorId();
     return store.organizations.vendors.find((entry) => entry.id === id) || store.organizations.vendors[0];
   }
   if (role === 'admin') {
@@ -1154,6 +1180,148 @@ export const updateMockVendorSettings = (
   }
 
   return getMockVendorSettings(organization.id);
+};
+
+export const getMockVendorMenuItemCount = (vendorId?: string) => {
+  const store = getMockStore();
+  const id = vendorId ?? getMockVendorId();
+  return store.menuItems.filter((item) => item.vendorId === id && item.isAvailable).length;
+};
+
+export const getMockVendorOnboarding = (vendorId?: string) => {
+  const organization = getMockOrganization('vendor', vendorId);
+  if (!organization) return null;
+
+  const menuItemCount = getMockVendorMenuItemCount(organization.id);
+  const status = evaluateVendorOnboarding({
+    name: organization.name,
+    address: organization.address,
+    vendorSettings: organization.vendorSettings,
+    marketplaceVisible: organization.marketplaceVisible,
+    onboardingCompletedAt: organization.onboardingCompletedAt,
+    menuItemCount,
+    stripeConnected: Boolean(organization.stripeAccountId),
+  });
+
+  return {
+    organization: {
+      id: organization.id,
+      name: organization.name,
+      address: organization.address,
+      stripeAccountId: organization.stripeAccountId,
+      marketplaceVisible: organization.marketplaceVisible ?? false,
+      settings: mergeVendorSettings(organization.vendorSettings),
+    },
+    status,
+    menuItems: getMockStore().menuItems.filter(
+      (item) => item.vendorId === organization.id
+    ),
+  };
+};
+
+export const updateMockVendorOnboarding = (
+  vendorId: string | undefined,
+  updates: {
+    name?: string;
+    address?: Partial<NonNullable<MockOrganization['address']>>;
+    settings?: Partial<VendorSettings>;
+    menuItems?: Array<{
+      name: string;
+      price: number;
+      mealCategories: ('breakfast' | 'lunch' | 'dinner')[];
+      allergenTags: string[];
+      description?: string;
+    }>;
+  }
+) => {
+  const organization = getMockOrganization('vendor', vendorId);
+  if (!organization) return null;
+
+  if (updates.name) organization.name = updates.name;
+  if (updates.address) {
+    organization.address = {
+      street: organization.address?.street || '',
+      city: organization.address?.city || '',
+      state: organization.address?.state || '',
+      zipCode: organization.address?.zipCode || '',
+      coordinates: organization.address?.coordinates,
+      ...updates.address,
+    };
+  }
+  if (updates.settings) {
+    organization.vendorSettings = {
+      ...mergeVendorSettings(organization.vendorSettings),
+      ...updates.settings,
+    };
+  }
+
+  if (updates.menuItems?.length) {
+    updates.menuItems.forEach((item) => {
+      createMockMenuItem(organization.id, {
+        name: item.name,
+        price: Math.round(item.price * 100),
+        mealCategories: item.mealCategories,
+        allergenTags: item.allergenTags,
+        description: item.description,
+        isAvailable: true,
+      });
+    });
+  }
+
+  return getMockVendorOnboarding(organization.id);
+};
+
+export const completeMockVendorOnboarding = (
+  vendorId?: string
+): ReturnType<typeof getMockVendorOnboarding> | { error: string } => {
+  const organization = getMockOrganization('vendor', vendorId);
+  if (!organization) return null;
+
+  const snapshot = evaluateVendorOnboarding({
+    name: organization.name,
+    address: organization.address,
+    vendorSettings: organization.vendorSettings,
+    marketplaceVisible: organization.marketplaceVisible,
+    onboardingCompletedAt: organization.onboardingCompletedAt,
+    menuItemCount: getMockVendorMenuItemCount(organization.id),
+    stripeConnected: Boolean(organization.stripeAccountId),
+  });
+
+  const kitchenItem = snapshot.checklist.find((item) => item.id === 'kitchen');
+  const menuItem = snapshot.checklist.find((item) => item.id === 'menu');
+  if (!kitchenItem?.complete || !menuItem?.complete) {
+    return { error: 'Complete kitchen profile and add menu items before going live.' };
+  }
+
+  organization.marketplaceVisible = true;
+  organization.onboardingCompletedAt = new Date().toISOString();
+
+  return getMockVendorOnboarding(organization.id);
+};
+
+export const bootstrapMockVendorOnboarding = () => {
+  const store = getMockStore();
+  const ONBOARDING_VENDOR_ID = 'vendor_new_kitchen';
+
+  let vendor = store.organizations.vendors.find((entry) => entry.id === ONBOARDING_VENDOR_ID);
+  if (!vendor) {
+    vendor = {
+      id: ONBOARDING_VENDOR_ID,
+      name: 'My Kitchen',
+      type: 'vendor',
+      marketplaceVisible: false,
+      vendorSettings: {
+        ...DEFAULT_VENDOR_SETTINGS,
+        contactName: '',
+        contactEmail: '',
+        contactPhone: '',
+        description: '',
+      },
+    };
+    store.organizations.vendors.push(vendor);
+  }
+
+  return getMockVendorOnboarding(ONBOARDING_VENDOR_ID);
 };
 
 export const getMockConsumerSettings = () => {
