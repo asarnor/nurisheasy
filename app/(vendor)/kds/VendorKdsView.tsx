@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/Badge';
 import { apiFetch } from '@/lib/utils/api';
 import { vendorPath } from '@/lib/utils/debug-client';
 import { VendorShell } from '@/components/layout/VendorShell';
+import { ResetDeliveryDemoButton } from '@/components/debug/ResetDeliveryDemoButton';
 
 interface OrderItem {
   name: string;
@@ -22,6 +23,7 @@ interface SubOrder {
   vendorTotal: number;
   orderId: string;
   consumerName: string;
+  fulfillmentMethod?: 'pickup' | 'delivery';
   allergenAlerts?: string[];
 }
 
@@ -31,7 +33,8 @@ const statusLabelMap: Record<string, string> = {
   PENDING: 'New Order',
   ACCEPTED: 'Accepted',
   PREPARING: 'Preparing',
-  READY: 'Ready for Pickup',
+  READY: 'Ready',
+  OUT_FOR_DELIVERY: 'Out for delivery',
   DELIVERED: 'Delivered',
   CANCELLED: 'Cancelled',
 };
@@ -110,13 +113,14 @@ export default function KitchenDisplaySystemPage() {
                   ? subOrder.vendorId?._id || subOrder.vendorId?.id || ''
                   : subOrder.vendorId,
               consumerName: order.consumerId?.name || order.consumerName || 'Unknown',
+              fulfillmentMethod: order.fulfillmentMethod,
             };
 
             if (subOrder.status === 'PENDING') {
               newOrdersList.push(subOrderData);
             } else if (subOrder.status === 'ACCEPTED' || subOrder.status === 'PREPARING') {
               toPrepList.push(subOrderData);
-            } else if (subOrder.status === 'READY') {
+            } else if (subOrder.status === 'READY' || subOrder.status === 'OUT_FOR_DELIVERY') {
               readyList.push(subOrderData);
             }
           }
@@ -181,6 +185,26 @@ export default function KitchenDisplaySystemPage() {
       alert('Failed to update order status');
     }
     fetchOrders();
+  };
+
+  const handleStartDelivery = async (orderId: string, vendorId?: string) => {
+    try {
+      const response = await apiFetch('/api/deliveries', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId, vendorId }),
+      });
+
+      if (!response.ok) {
+        alert('Failed to start delivery');
+        return;
+      }
+
+      router.push(vendorPath(`/vendor/delivery/${orderId}`));
+    } catch (error) {
+      console.error('Error starting delivery:', error);
+      alert('Failed to start delivery');
+    }
   };
 
   const OrderCard = ({
@@ -277,13 +301,28 @@ export default function KitchenDisplaySystemPage() {
           </Button>
         )}
 
-        {order.status === 'READY' && (
+        {order.status === 'READY' && order.fulfillmentMethod === 'delivery' && (
+          <Button onClick={() => handleStartDelivery(order.orderId, order.vendorId)} className="w-full">
+            Start delivery
+          </Button>
+        )}
+
+        {order.status === 'READY' && order.fulfillmentMethod !== 'delivery' && (
           <Button
             onClick={() => handleStatusChange(order.orderId, 'DELIVERED', order.vendorId)}
             className="w-full"
             variant="secondary"
           >
             Mark Delivered
+          </Button>
+        )}
+
+        {order.status === 'OUT_FOR_DELIVERY' && (
+          <Button
+            onClick={() => router.push(vendorPath(`/vendor/delivery/${order.orderId}`))}
+            className="w-full"
+          >
+            Open delivery tracker
           </Button>
         )}
       </Card>
@@ -325,6 +364,9 @@ export default function KitchenDisplaySystemPage() {
             </div>
           </Card>
         )}
+        <Card className="mb-6 border-dashed border-slate-200 bg-slate-50/80 p-4">
+          <ResetDeliveryDemoButton onReset={fetchOrders} />
+        </Card>
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
           {columns.map(({ key, orders }) => {
             const config = columnConfig[key];

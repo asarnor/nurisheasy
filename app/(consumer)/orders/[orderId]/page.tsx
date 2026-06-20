@@ -6,9 +6,11 @@ import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { VendorReviewForm } from '@/components/consumer/VendorReviewForm';
 import { ContractOrderSummary } from '@/components/orders/ContractOrderSummary';
+import { DeliveryTrackingPanel } from '@/components/consumer/DeliveryTrackingPanel';
 import { ConsumerShell } from '@/components/layout/ConsumerShell';
 import { apiFetch } from '@/lib/utils/api';
 import { consumerPath } from '@/lib/utils/debug-client';
+import type { DeliveryTrackingPayload } from '@/lib/delivery-tracking';
 import type { FulfillmentMethod } from '@/lib/contract-options';
 import type { MealCategory } from '@/lib/meal-categories';
 
@@ -56,6 +58,7 @@ export default function OrderTrackingPage() {
   const router = useRouter();
   const orderId = params.orderId as string;
   const [order, setOrder] = useState<Order | null>(null);
+  const [delivery, setDelivery] = useState<DeliveryTrackingPayload | null>(null);
   const [reviews, setReviews] = useState<Review[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -64,6 +67,27 @@ export default function OrderTrackingPage() {
     const interval = setInterval(fetchOrder, 5000);
     return () => clearInterval(interval);
   }, [orderId]);
+
+  const fetchDelivery = async () => {
+    try {
+      const response = await apiFetch(`/api/orders/${orderId}/delivery`);
+      if (response.ok) {
+        const data = await response.json();
+        setDelivery(data.delivery || null);
+      }
+    } catch (error) {
+      console.error('Error fetching delivery:', error);
+    }
+  };
+
+  useEffect(() => {
+    if (order?.fulfillmentMethod === 'delivery') {
+      fetchDelivery();
+      const interval = setInterval(fetchDelivery, 5000);
+      return () => clearInterval(interval);
+    }
+    setDelivery(null);
+  }, [orderId, order?.fulfillmentMethod]);
 
   const fetchOrder = async () => {
     try {
@@ -96,6 +120,7 @@ export default function OrderTrackingPage() {
       case 'ACCEPTED':
       case 'PREPARING':
       case 'READY':
+      case 'OUT_FOR_DELIVERY':
       case 'DELIVERED':
         return 'success';
       case 'PENDING':
@@ -108,12 +133,15 @@ export default function OrderTrackingPage() {
     }
   };
 
-  const getStatusTimeline = (subOrder: SubOrder) => {
-    const statuses = ['PENDING', 'ACCEPTED', 'PREPARING', 'READY', 'DELIVERED'];
+  const getStatusTimeline = (subOrder: SubOrder, fulfillmentMethod?: FulfillmentMethod) => {
+    const statuses =
+      fulfillmentMethod === 'delivery'
+        ? ['PENDING', 'ACCEPTED', 'PREPARING', 'READY', 'OUT_FOR_DELIVERY', 'DELIVERED']
+        : ['PENDING', 'ACCEPTED', 'PREPARING', 'READY', 'DELIVERED'];
     const currentIndex = statuses.indexOf(subOrder.status);
 
     return statuses.map((status, index) => ({
-      status,
+      status: status === 'OUT_FOR_DELIVERY' ? 'EN ROUTE' : status,
       completed: index <= currentIndex,
       current: index === currentIndex,
     }));
@@ -192,8 +220,14 @@ export default function OrderTrackingPage() {
           }}
         />
 
+        {order.fulfillmentMethod === 'delivery' &&
+        delivery &&
+        (delivery.status === 'in_transit' || delivery.status === 'arrived') ? (
+          <DeliveryTrackingPanel delivery={delivery} />
+        ) : null}
+
         {order.subOrders.map((subOrder, index) => {
-          const timeline = getStatusTimeline(subOrder);
+          const timeline = getStatusTimeline(subOrder, order.fulfillmentMethod);
           const vendorId = getVendorId(subOrder);
           const existingReview = getReviewForVendor(vendorId);
 

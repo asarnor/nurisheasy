@@ -13,6 +13,13 @@ import {
 } from '@/lib/vendor-settings';
 import { evaluateVendorOnboarding } from '@/lib/vendor-onboarding';
 import {
+  buildTrackingPayload,
+  hasArrived,
+  DEMO_DELIVERY_ORDER_ID,
+  type DeliveryStatus,
+  type DeliveryTrackingPayload,
+} from '@/lib/delivery-tracking';
+import {
   DEFAULT_CONSUMER_SETTINGS,
   mergeConsumerSettings,
   type ConsumerSettings,
@@ -79,6 +86,7 @@ export interface MockSubOrder {
     | 'ACCEPTED'
     | 'PREPARING'
     | 'READY'
+    | 'OUT_FOR_DELIVERY'
     | 'DELIVERED'
     | 'REFUNDED'
     | 'CANCELLED';
@@ -86,6 +94,35 @@ export interface MockSubOrder {
   vendorTotal: number;
   acceptedAt?: string;
   estimatedReadyAt?: string;
+}
+
+export interface MockDelivery {
+  id: string;
+  orderId: string;
+  subOrderIndex: number;
+  vendorId: string;
+  consumerId: string;
+  status: DeliveryStatus;
+  destination: {
+    street: string;
+    city: string;
+    state: string;
+    zipCode: string;
+    lat: number;
+    lng: number;
+  };
+  origin: { lat: number; lng: number };
+  driver: { name: string; phone?: string };
+  currentLocation?: {
+    lat: number;
+    lng: number;
+    heading?: number;
+    accuracy?: number;
+    updatedAt: string;
+  };
+  startedAt?: string;
+  arrivedAt?: string;
+  deliveredAt?: string;
 }
 
 export interface MockOrder {
@@ -146,6 +183,7 @@ export interface MockStore {
   };
   menuItems: MockMenuItem[];
   orders: MockOrder[];
+  deliveries: MockDelivery[];
   reviews: MockReview[];
   issues: MockIssue[];
   users: MockUser[];
@@ -594,15 +632,15 @@ const createMockStore = (): MockStore => {
       _id: 'order_mock_1003',
       status: 'CONFIRMED',
       paymentIntentId: 'pi_mock_1003',
-      totalAmount: dinnerOrder.vendorTotal,
-      platformFee: Math.round(dinnerOrder.vendorTotal * 0.1),
+      totalAmount: dinnerOrder.vendorTotal + DELIVERY_FEE_CENTS,
+      platformFee: Math.round((dinnerOrder.vendorTotal + DELIVERY_FEE_CENTS) * 0.1),
       createdAt: new Date(now - 1000 * 60 * 260).toISOString(),
       consumerId: { _id: consumer.id, name: consumer.name },
       contractDurationMonths: 12,
       preparationDayOfWeek: 5,
       mealPeriods: ['dinner'],
-      fulfillmentMethod: 'pickup',
-      deliveryFeeCents: 0,
+      fulfillmentMethod: 'delivery',
+      deliveryFeeCents: DELIVERY_FEE_CENTS,
       contractStartDate: new Date(now - 1000 * 60 * 60 * 24 * 90).toISOString(),
       contractEndDate: calculateContractEndDate(new Date(now - 1000 * 60 * 60 * 24 * 90), 12).toISOString(),
       subOrders: [
@@ -702,6 +740,7 @@ const createMockStore = (): MockStore => {
     },
     menuItems,
     orders,
+    deliveries: [],
     reviews,
     issues,
     users,
@@ -721,6 +760,9 @@ export const getMockStore = () => {
   const store = globalThis.__SAFEPLATE_MOCK_STORE__;
   if (!store.reviews) {
     store.reviews = createMockStore().reviews;
+  }
+  if (!store.deliveries) {
+    store.deliveries = [];
   }
 
   store.organizations.vendors.forEach((vendor) => {
@@ -744,6 +786,36 @@ export const getMockStore = () => {
 
 export const resetMockStore = () => {
   globalThis.__SAFEPLATE_MOCK_STORE__ = createMockStore();
+};
+
+export { DEMO_DELIVERY_ORDER_ID } from '@/lib/delivery-tracking';
+
+export const resetMockDeliveryDemo = () => {
+  const store = getMockStore();
+  const freshOrder = createMockStore().orders.find(
+    (entry) => entry._id === DEMO_DELIVERY_ORDER_ID
+  );
+  if (!freshOrder) return null;
+
+  const orderIndex = store.orders.findIndex((entry) => entry._id === DEMO_DELIVERY_ORDER_ID);
+  if (orderIndex < 0) return null;
+
+  store.orders[orderIndex] = JSON.parse(JSON.stringify(freshOrder)) as MockOrder;
+  store.deliveries = store.deliveries.filter(
+    (entry) => entry.orderId !== DEMO_DELIVERY_ORDER_ID
+  );
+
+  if (store.reviews) {
+    store.reviews = store.reviews.filter(
+      (entry) => entry.orderId !== DEMO_DELIVERY_ORDER_ID
+    );
+  }
+
+  return {
+    orderId: DEMO_DELIVERY_ORDER_ID,
+    order: store.orders[orderIndex],
+    message: 'Delivery demo reset. Order #1003 is READY for delivery again.',
+  };
 };
 
 export const getMockVendorId = (preferredId?: string) => {
@@ -1422,4 +1494,154 @@ export const createMockReview = (payload: {
 
   store.reviews.unshift(review);
   return review;
+};
+
+const toMockDeliveryTracking = (delivery: MockDelivery): DeliveryTrackingPayload =>
+  buildTrackingPayload({
+    id: delivery.id,
+    orderId: delivery.orderId,
+    subOrderIndex: delivery.subOrderIndex,
+    vendorId: delivery.vendorId,
+    consumerId: delivery.consumerId,
+    status: delivery.status,
+    destination: delivery.destination,
+    origin: delivery.origin,
+    driver: delivery.driver,
+    currentLocation: delivery.currentLocation ?? null,
+    startedAt: delivery.startedAt,
+    arrivedAt: delivery.arrivedAt,
+    deliveredAt: delivery.deliveredAt,
+  });
+
+export const getMockDelivery = (deliveryId: string) => {
+  const store = getMockStore();
+  return store.deliveries.find((entry) => entry.id === deliveryId) ?? null;
+};
+
+export const getMockDeliveryByOrder = (orderId: string, vendorId?: string) => {
+  const store = getMockStore();
+  const deliveries = store.deliveries.filter((entry) => entry.orderId === orderId);
+  if (vendorId) {
+    return deliveries.find((entry) => entry.vendorId === vendorId) ?? null;
+  }
+  return (
+    deliveries.find((entry) => entry.status === 'in_transit' || entry.status === 'arrived') ||
+    deliveries[deliveries.length - 1] ||
+    null
+  );
+};
+
+export const getMockDeliveryTracking = (deliveryId: string) => {
+  const delivery = getMockDelivery(deliveryId);
+  return delivery ? toMockDeliveryTracking(delivery) : null;
+};
+
+export const startMockDelivery = (orderId: string, vendorId: string) => {
+  const store = getMockStore();
+  const order = store.orders.find((entry) => entry._id === orderId);
+  if (!order || order.fulfillmentMethod !== 'delivery') return null;
+
+  const subOrderIndex = order.subOrders.findIndex((entry) => entry.vendorId === vendorId);
+  if (subOrderIndex < 0) return null;
+
+  const subOrder = order.subOrders[subOrderIndex];
+  if (subOrder.status !== 'READY') return null;
+
+  const existing = store.deliveries.find(
+    (entry) => entry.orderId === orderId && entry.vendorId === vendorId
+  );
+  if (existing && existing.status !== 'delivered' && existing.status !== 'cancelled') {
+    return toMockDeliveryTracking(existing);
+  }
+
+  const vendor = store.organizations.vendors.find((entry) => entry.id === vendorId);
+  const consumer = store.organizations.consumer;
+  if (!vendor?.address?.coordinates || !consumer.address?.coordinates) return null;
+
+  const now = new Date().toISOString();
+  const origin = vendor.address.coordinates;
+  const destination = {
+    street: consumer.address.street,
+    city: consumer.address.city,
+    state: consumer.address.state,
+    zipCode: consumer.address.zipCode,
+    lat: consumer.address.coordinates.lat,
+    lng: consumer.address.coordinates.lng,
+  };
+
+  const delivery: MockDelivery = {
+    id: `delivery_${orderId}_${subOrderIndex}`,
+    orderId,
+    subOrderIndex,
+    vendorId,
+    consumerId: consumer.id,
+    status: 'in_transit',
+    destination,
+    origin,
+    driver: {
+      name: vendor.vendorSettings?.contactName || vendor.name,
+      phone: vendor.vendorSettings?.contactPhone,
+    },
+    currentLocation: {
+      lat: origin.lat,
+      lng: origin.lng,
+      updatedAt: now,
+    },
+    startedAt: now,
+  };
+
+  store.deliveries.push(delivery);
+  subOrder.status = 'OUT_FOR_DELIVERY';
+  updateOrderStatusFromSubOrders(order);
+
+  return toMockDeliveryTracking(delivery);
+};
+
+export const updateMockDeliveryLocation = (
+  deliveryId: string,
+  location: { lat: number; lng: number; heading?: number; accuracy?: number }
+) => {
+  const store = getMockStore();
+  const delivery = store.deliveries.find((entry) => entry.id === deliveryId);
+  if (!delivery || delivery.status === 'delivered' || delivery.status === 'cancelled') {
+    return null;
+  }
+
+  const updatedAt = new Date().toISOString();
+  delivery.currentLocation = {
+    lat: location.lat,
+    lng: location.lng,
+    heading: location.heading,
+    accuracy: location.accuracy,
+    updatedAt,
+  };
+
+  if (delivery.status === 'in_transit' && hasArrived(location, delivery.destination)) {
+    delivery.status = 'arrived';
+    delivery.arrivedAt = updatedAt;
+  }
+
+  return toMockDeliveryTracking(delivery);
+};
+
+export const completeMockDelivery = (deliveryId: string) => {
+  const store = getMockStore();
+  const delivery = store.deliveries.find((entry) => entry.id === deliveryId);
+  if (!delivery || delivery.status === 'delivered' || delivery.status === 'cancelled') {
+    return null;
+  }
+
+  const order = store.orders.find((entry) => entry._id === delivery.orderId);
+  if (!order) return null;
+
+  const subOrder = order.subOrders[delivery.subOrderIndex];
+  if (!subOrder) return null;
+
+  const now = new Date().toISOString();
+  delivery.status = 'delivered';
+  delivery.deliveredAt = now;
+  subOrder.status = 'DELIVERED';
+  updateOrderStatusFromSubOrders(order);
+
+  return toMockDeliveryTracking(delivery);
 };

@@ -4,7 +4,7 @@ import { shouldUseMockData, getDebugRoleFromRequest } from '@/lib/utils/debug';
 import { getMockVendorId, updateMockSubOrderStatus } from '@/lib/mock-data';
 
 const updateStatusSchema = z.object({
-  status: z.enum(['ACCEPTED', 'PREPARING', 'READY', 'DELIVERED', 'CANCELLED']),
+  status: z.enum(['ACCEPTED', 'PREPARING', 'READY', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED']),
   vendorId: z.string().optional(),
 });
 

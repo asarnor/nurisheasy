@@ -89,3 +89,39 @@ export async function getSession<T>(key: string): Promise<T | null> {
   const value = await client.get(key);
   return value ? JSON.parse(value) : null;
 }
+
+const deliveryLocationKey = (deliveryId: string) => `delivery:loc:${deliveryId}`;
+
+export interface CachedDeliveryLocation {
+  lat: number;
+  lng: number;
+  heading?: number;
+  accuracy?: number;
+  updatedAt: string;
+}
+
+export async function cacheDeliveryLocation(
+  deliveryId: string,
+  location: CachedDeliveryLocation,
+  ttl: number = 3600
+): Promise<void> {
+  try {
+    const client = await getRedisClient();
+    await client.setEx(deliveryLocationKey(deliveryId), ttl, JSON.stringify(location));
+  } catch (error) {
+    console.warn('Failed to cache delivery location:', error);
+  }
+}
+
+export async function getCachedDeliveryLocation(
+  deliveryId: string
+): Promise<CachedDeliveryLocation | null> {
+  try {
+    const client = await getRedisClient();
+    const value = await client.get(deliveryLocationKey(deliveryId));
+    return value ? JSON.parse(value) : null;
+  } catch (error) {
+    console.warn('Failed to read cached delivery location:', error);
+    return null;
+  }
+}

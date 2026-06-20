@@ -4,7 +4,7 @@ import MenuItem from './menu.model';
 
 export interface ISubOrder {
   vendorId: mongoose.Types.ObjectId;
-  status: 'PENDING' | 'ACCEPTED' | 'PREPARING' | 'READY' | 'DELIVERED' | 'REFUNDED' | 'CANCELLED';
+  status: 'PENDING' | 'ACCEPTED' | 'PREPARING' | 'READY' | 'OUT_FOR_DELIVERY' | 'DELIVERED' | 'REFUNDED' | 'CANCELLED';
   items: Array<{
     menuItemId: mongoose.Types.ObjectId;
     name: string;
@@ -43,7 +43,7 @@ const SubOrderSchema: Schema = new Schema(
     },
     status: {
       type: String,
-      enum: ['PENDING', 'ACCEPTED', 'PREPARING', 'READY', 'DELIVERED', 'REFUNDED', 'CANCELLED'],
+      enum: ['PENDING', 'ACCEPTED', 'PREPARING', 'READY', 'OUT_FOR_DELIVERY', 'DELIVERED', 'REFUNDED', 'CANCELLED'],
       default: 'PENDING',
     },
     items: [
