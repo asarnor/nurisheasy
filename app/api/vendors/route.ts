@@ -15,7 +15,9 @@ export async function GET(request: NextRequest) {
   try {
     if (await shouldUseMockData(request)) {
       const store = getMockStore();
-      const vendorsWithMenus = store.organizations.vendors.map((vendor) => ({
+      const vendorsWithMenus = store.organizations.vendors
+        .filter((vendor) => vendor.marketplaceVisible !== false)
+        .map((vendor) => ({
         id: vendor.id,
         name: vendor.name,
         address: vendor.address,
@@ -41,7 +43,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Find all vendors
-    const vendors = await Organization.find({ type: 'vendor' });
+    const vendors = await Organization.find({ type: 'vendor', marketplaceVisible: true });
 
     // Filter by delivery radius if consumer has coordinates
     let availableVendors = vendors;

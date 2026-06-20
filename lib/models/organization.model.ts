@@ -51,6 +51,8 @@ export interface IOrganization extends Document {
     };
   };
   stripeAccountId?: string; // For vendors using Stripe Connect
+  marketplaceVisible?: boolean;
+  onboardingCompletedAt?: Date;
   vendorSettings?: IVendorSettings;
   consumerSettings?: {
     defaultContractOptions?: {
@@ -135,6 +137,8 @@ const OrganizationSchema: Schema = new Schema(
       },
     },
     stripeAccountId: String,
+    marketplaceVisible: { type: Boolean, default: false },
+    onboardingCompletedAt: Date,
     vendorSettings: {
       contactName: String,
       contactEmail: String,

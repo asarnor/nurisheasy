@@ -14,7 +14,7 @@ export async function redirectToRoleDashboard() {
     redirect('/admin/dashboard');
   }
   if (debugRole === 'vendor') {
-    redirect('/vendor/kds');
+    redirect('/vendor/onboarding');
   }
   if (debugRole === 'consumer') {
     redirect('/marketplace');
@@ -38,6 +38,9 @@ export async function redirectToRoleDashboard() {
   // Organization type check
   if (organization) {
     if (organization.type === 'vendor') {
+      if (!organization.marketplaceVisible && !organization.onboardingCompletedAt) {
+        redirect('/vendor/onboarding');
+      }
       redirect('/vendor/kds');
     } else if (organization.type === 'consumer') {
       redirect('/marketplace');

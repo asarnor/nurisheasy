@@ -11,17 +11,11 @@ function SignUpContent() {
   // Redirect to home page after sign-up
   // Home page will then redirect based on actual organization type
   const getRedirectUrl = () => {
-    const debugEnabled = process.env.NEXT_PUBLIC_DEBUG_MODE === 'true';
-
-    if (!debugEnabled) {
-      return '/';
-    }
-
     switch (role) {
       case 'admin':
         return '/admin/dashboard';
       case 'vendor':
-        return '/vendor/kds';
+        return '/vendor/onboarding';
       case 'consumer':
       default:
         return '/marketplace';

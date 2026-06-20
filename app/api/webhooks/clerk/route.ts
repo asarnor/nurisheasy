@@ -3,6 +3,7 @@ import { Webhook } from 'svix';
 import { headers } from 'next/headers';
 import connectDB from '@/lib/mongodb';
 import Organization from '@/lib/models/organization.model';
+import { DEFAULT_VENDOR_SETTINGS } from '@/lib/vendor-settings';
 
 /**
  * POST /api/webhooks/clerk
@@ -59,14 +60,16 @@ export async function POST(request: NextRequest) {
     const eventType = evt.type;
 
     if (eventType === 'organization.created') {
-      const { id, name, slug } = evt.data;
+      const { id, name, slug, public_metadata: publicMetadata } = evt.data;
+      const safeplateType =
+        publicMetadata?.safeplateType === 'vendor' ? 'vendor' : 'consumer';
 
-      // Create organization in MongoDB
-      // Note: You'll need to determine type (consumer/vendor) from metadata or separate API call
       await Organization.create({
         clerkOrgId: id,
         name: name || slug || 'Unnamed Organization',
-        type: 'consumer', // Default, can be updated via API
+        type: safeplateType,
+        marketplaceVisible: safeplateType === 'vendor' ? false : undefined,
+        vendorSettings: safeplateType === 'vendor' ? DEFAULT_VENDOR_SETTINGS : undefined,
         safetyProfile: {
           criticalAllergens: [],
           preferences: [],
