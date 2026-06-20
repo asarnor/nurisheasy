@@ -18,7 +18,7 @@ function SignUpContent() {
         return '/vendor/onboarding';
       case 'consumer':
       default:
-        return '/marketplace';
+        return '/onboarding';
     }
   };
 

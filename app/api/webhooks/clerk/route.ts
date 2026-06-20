@@ -4,6 +4,7 @@ import { headers } from 'next/headers';
 import connectDB from '@/lib/mongodb';
 import Organization from '@/lib/models/organization.model';
 import { DEFAULT_VENDOR_SETTINGS } from '@/lib/vendor-settings';
+import { DEFAULT_CONSUMER_SETTINGS } from '@/lib/consumer-settings';
 
 /**
  * POST /api/webhooks/clerk
@@ -70,6 +71,7 @@ export async function POST(request: NextRequest) {
         type: safeplateType,
         marketplaceVisible: safeplateType === 'vendor' ? false : undefined,
         vendorSettings: safeplateType === 'vendor' ? DEFAULT_VENDOR_SETTINGS : undefined,
+        consumerSettings: safeplateType === 'consumer' ? DEFAULT_CONSUMER_SETTINGS : undefined,
         safetyProfile: {
           criticalAllergens: [],
           preferences: [],

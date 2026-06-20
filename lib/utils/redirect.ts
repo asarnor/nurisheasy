@@ -17,7 +17,7 @@ export async function redirectToRoleDashboard() {
     redirect('/vendor/onboarding');
   }
   if (debugRole === 'consumer') {
-    redirect('/marketplace');
+    redirect('/onboarding');
   }
 
   let organization = await getCurrentOrganization();
@@ -43,6 +43,9 @@ export async function redirectToRoleDashboard() {
       }
       redirect('/vendor/kds');
     } else if (organization.type === 'consumer') {
+      if (!organization.onboardingCompletedAt) {
+        redirect('/onboarding');
+      }
       redirect('/marketplace');
     }
   }

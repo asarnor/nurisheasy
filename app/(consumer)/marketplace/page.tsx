@@ -6,7 +6,9 @@ import { MultiVendorCart } from '@/components/consumer/MultiVendorCart';
 import { DietaryFilter } from '@/components/consumer/DietaryFilter';
 import { MealPeriodFilter } from '@/components/consumer/MealPeriodFilter';
 import { ConsumerShell } from '@/components/layout/ConsumerShell';
-import { useRouter } from 'next/navigation';
+import { Card } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { apiFetch } from '@/lib/utils/api';
 import { consumerPath } from '@/lib/utils/debug-client';
 import type { MealCategory } from '@/lib/meal-categories';
@@ -37,6 +39,8 @@ interface CartItem {
 
 export default function MarketplacePage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const showWelcome = searchParams.get('welcome') === '1';
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [filter, setFilter] = useState('all');
@@ -152,6 +156,28 @@ export default function MarketplacePage() {
     >
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         <div className="lg:col-span-3 space-y-6">
+          {showWelcome && (
+            <Card className="border-emerald-200 bg-emerald-50 p-5">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <h2 className="text-lg font-semibold text-emerald-900">
+                    You&apos;re ready to order
+                  </h2>
+                  <p className="mt-1 text-sm text-emerald-800">
+                    Browse menus below — items with your critical allergens are already hidden.
+                    Add items to your cart, then check out with your contract schedule.
+                  </p>
+                </div>
+                <Button
+                  variant="secondary"
+                  className="shrink-0"
+                  onClick={() => router.replace(consumerPath('/marketplace'))}
+                >
+                  Dismiss
+                </Button>
+              </div>
+            </Card>
+          )}
           <MealPeriodFilter value={mealPeriod} onChange={setMealPeriod} />
 
           <DietaryFilter

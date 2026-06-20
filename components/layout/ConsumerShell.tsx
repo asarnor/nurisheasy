@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import { UserButton } from '@clerk/nextjs';
 import { CONSUMER_ACCOUNT_NAV } from '@/lib/consumer-account-nav';
 import { ConsumerAccountPanel } from '@/components/consumer/ConsumerAccountPanel';
+import { ConsumerOnboardingChecklist } from '@/components/consumer/ConsumerOnboardingChecklist';
 import { ConsumerBottomNav } from '@/components/layout/ConsumerBottomNav';
 import {
   consumerAccountPath,
@@ -204,6 +205,7 @@ export const ConsumerShell: React.FC<ConsumerShellProps> = ({
             <h1 className="text-3xl font-semibold text-slate-900">{title}</h1>
             {subtitle && <p className="text-sm mt-2 text-slate-500">{subtitle}</p>}
           </div>
+          <ConsumerOnboardingChecklist />
           {children}
         </main>
 

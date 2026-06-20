@@ -39,6 +39,7 @@ export interface IOrganization extends Document {
     criticalAllergens: string[]; // HARD BLOCK
     preferences: string[]; // WARN ONLY
     taxExempt: boolean;
+    confirmedNoCriticalAllergens?: boolean;
   };
   address?: {
     street: string;
@@ -54,7 +55,11 @@ export interface IOrganization extends Document {
   marketplaceVisible?: boolean;
   onboardingCompletedAt?: Date;
   vendorSettings?: IVendorSettings;
-  consumerSettings?: {
+    consumerSettings?: {
+    contactName?: string;
+    contactEmail?: string;
+    contactPhone?: string;
+    orderingStepAcknowledged?: boolean;
     defaultContractOptions?: {
       contractDurationMonths?: 3 | 6 | 9 | 12;
       preparationDayOfWeek?: number;
@@ -125,6 +130,10 @@ const OrganizationSchema: Schema = new Schema(
         type: Boolean,
         default: false,
       },
+      confirmedNoCriticalAllergens: {
+        type: Boolean,
+        default: false,
+      },
     },
     address: {
       street: String,
@@ -178,6 +187,10 @@ const OrganizationSchema: Schema = new Schema(
       notificationQuietHoursEnd: { type: String, default: '07:00' },
     },
     consumerSettings: {
+      contactName: String,
+      contactEmail: String,
+      contactPhone: String,
+      orderingStepAcknowledged: { type: Boolean, default: false },
       defaultContractOptions: {
         contractDurationMonths: { type: Number, enum: [3, 6, 9, 12], default: 3 },
         preparationDayOfWeek: { type: Number, min: 0, max: 6, default: 1 },

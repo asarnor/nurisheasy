@@ -3,6 +3,7 @@ import { auth } from '@clerk/nextjs/server';
 import { redirect } from 'next/navigation';
 import { getCurrentOrganization, getOrganizationFromMemberships } from '@/lib/utils/clerk';
 import { getTestUserRole, isDebugEnvEnabled } from '@/lib/utils/debug';
+import { ConsumerOnboardingGate } from '@/components/consumer/ConsumerOnboardingGate';
 
 export default async function ConsumerLayout({
   children,
@@ -19,34 +20,29 @@ export default async function ConsumerLayout({
     redirect('/vendor/kds');
   }
 
-  if (debugRole === 'consumer' || isDebugEnvEnabled()) {
-    return <>{children}</>;
-  }
+  if (!(debugRole === 'consumer' || isDebugEnvEnabled())) {
+    const { userId, orgRole } = await auth();
 
-  const { userId, orgRole } = await auth();
+    if (userId) {
+      if (orgRole === 'org:admin') {
+        redirect('/admin/dashboard');
+      }
 
-  if (!userId) {
-    return <>{children}</>;
-  }
+      let organization = await getCurrentOrganization();
 
-  // Admin check (based on Clerk role)
-  if (orgRole === 'org:admin') {
-    redirect('/admin/dashboard');
-  }
+      if (!organization) {
+        const fallback = await getOrganizationFromMemberships();
+        if (fallback.orgRole === 'org:admin') {
+          redirect('/admin/dashboard');
+        }
+        organization = fallback.organization || organization;
+      }
 
-  let organization = await getCurrentOrganization();
-
-  if (!organization) {
-    const fallback = await getOrganizationFromMemberships();
-    if (fallback.orgRole === 'org:admin') {
-      redirect('/admin/dashboard');
+      if (organization?.type === 'vendor') {
+        redirect('/vendor/kds');
+      }
     }
-    organization = fallback.organization || organization;
   }
 
-  if (organization?.type === 'vendor') {
-    redirect('/vendor/kds');
-  }
-
-  return <>{children}</>;
+  return <ConsumerOnboardingGate>{children}</ConsumerOnboardingGate>;
 }

@@ -4,6 +4,9 @@ import {
 } from '@/lib/contract-options';
 
 export interface ConsumerSettings {
+  contactName: string;
+  contactEmail: string;
+  contactPhone: string;
   defaultContractOptions: OrderContractOptions;
   notifyOrderUpdates: boolean;
   notifyDeliveryReminders: boolean;
@@ -12,9 +15,13 @@ export interface ConsumerSettings {
   notifyMarketing: boolean;
   notificationQuietHoursStart: string;
   notificationQuietHoursEnd: string;
+  orderingStepAcknowledged?: boolean;
 }
 
 export const DEFAULT_CONSUMER_SETTINGS: ConsumerSettings = {
+  contactName: '',
+  contactEmail: '',
+  contactPhone: '',
   defaultContractOptions: DEFAULT_CONTRACT_OPTIONS,
   notifyOrderUpdates: true,
   notifyDeliveryReminders: true,

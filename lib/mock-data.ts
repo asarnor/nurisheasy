@@ -12,6 +12,7 @@ import {
   type VendorSettings,
 } from '@/lib/vendor-settings';
 import { evaluateVendorOnboarding } from '@/lib/vendor-onboarding';
+import { evaluateConsumerOnboarding } from '@/lib/consumer-onboarding';
 import {
   DEFAULT_CONSUMER_SETTINGS,
   mergeConsumerSettings,
@@ -28,6 +29,7 @@ export interface MockOrganization {
     criticalAllergens: string[];
     preferences: string[];
     taxExempt: boolean;
+    confirmedNoCriticalAllergens?: boolean;
   };
   address?: {
     street: string;
@@ -262,12 +264,22 @@ const createMockStore = (): MockStore => {
       coordinates: { lat: 30.2610, lng: -97.7300 },
     },
     consumerSettings: {
+      contactName: 'Tommy Nguyen',
+      contactEmail: 'orders@tommys-homecare.com',
+      contactPhone: '(512) 555-0198',
+      orderingStepAcknowledged: true,
       notifyOrderUpdates: true,
       notifyDeliveryReminders: true,
       notifyContractRenewal: true,
       notifyReviewReminders: true,
       notifyMarketing: false,
+      defaultContractOptions: {
+        ...DEFAULT_CONTRACT_OPTIONS,
+        fulfillmentMethod: 'delivery',
+        mealPeriods: ['breakfast', 'lunch', 'dinner'],
+      },
     },
+    onboardingCompletedAt: new Date(now - 1000 * 60 * 60 * 24 * 60).toISOString(),
   };
 
   const admin: MockOrganization = {
@@ -1352,6 +1364,173 @@ export const updateMockConsumerSettings = (updates?: Partial<ConsumerSettings>) 
   }
 
   return getMockConsumerSettings();
+};
+
+const buildMockConsumerOnboardingPayload = (organization: MockOrganization) => {
+  const settings = mergeConsumerSettings(organization.consumerSettings);
+  const status = evaluateConsumerOnboarding({
+    name: organization.name,
+    address: organization.address,
+    safetyProfile: organization.safetyProfile,
+    consumerSettings: organization.consumerSettings,
+    onboardingCompletedAt: organization.onboardingCompletedAt,
+    orderingStepAcknowledged: settings.orderingStepAcknowledged,
+  });
+
+  return {
+    organization: {
+      id: organization.id,
+      name: organization.name,
+      address: organization.address,
+      safetyProfile: organization.safetyProfile || {
+        criticalAllergens: [],
+        preferences: [],
+        taxExempt: false,
+        confirmedNoCriticalAllergens: false,
+      },
+      settings,
+    },
+    status,
+  };
+};
+
+export const getMockConsumerOnboarding = () => {
+  const organization = getMockOrganization('consumer');
+  if (!organization || organization.type !== 'consumer') return null;
+  return buildMockConsumerOnboardingPayload(organization);
+};
+
+export const bootstrapMockConsumerOnboarding = () => {
+  const store = getMockStore();
+  const consumer = store.organizations.consumer;
+
+  Object.assign(consumer, {
+    name: 'My Group Home',
+    safetyProfile: {
+      criticalAllergens: [],
+      preferences: [],
+      taxExempt: false,
+      confirmedNoCriticalAllergens: false,
+    },
+    address: undefined,
+    consumerSettings: {
+      ...DEFAULT_CONSUMER_SETTINGS,
+      contactName: '',
+      contactEmail: '',
+      contactPhone: '',
+      orderingStepAcknowledged: false,
+    },
+    onboardingCompletedAt: undefined,
+  });
+
+  return getMockConsumerOnboarding();
+};
+
+export const resetMockConsumerOnboarding = () => {
+  const store = getMockStore();
+  const freshConsumer = createMockStore().organizations.consumer;
+  store.organizations.consumer = JSON.parse(JSON.stringify(freshConsumer)) as MockOrganization;
+  return getMockConsumerOnboarding();
+};
+
+export const updateMockConsumerOnboarding = (updates: {
+  name?: string;
+  address?: Partial<NonNullable<MockOrganization['address']>>;
+  contactName?: string;
+  contactEmail?: string;
+  contactPhone?: string;
+  criticalAllergens?: string[];
+  preferences?: string[];
+  confirmedNoCriticalAllergens?: boolean;
+  defaultContractOptions?: Partial<OrderContractOptions>;
+  orderingStepAcknowledged?: boolean;
+}) => {
+  const organization = getMockOrganization('consumer');
+  if (!organization || organization.type !== 'consumer') return null;
+
+  if (updates.name) organization.name = updates.name;
+  if (updates.address) {
+    organization.address = {
+      street: organization.address?.street || '',
+      city: organization.address?.city || '',
+      state: organization.address?.state || '',
+      zipCode: organization.address?.zipCode || '',
+      coordinates: organization.address?.coordinates,
+      ...updates.address,
+    };
+  }
+
+  if (
+    updates.criticalAllergens !== undefined ||
+    updates.preferences !== undefined ||
+    updates.confirmedNoCriticalAllergens !== undefined
+  ) {
+    organization.safetyProfile = {
+      criticalAllergens:
+        updates.criticalAllergens ?? organization.safetyProfile?.criticalAllergens ?? [],
+      preferences: updates.preferences ?? organization.safetyProfile?.preferences ?? [],
+      taxExempt: organization.safetyProfile?.taxExempt ?? false,
+      confirmedNoCriticalAllergens:
+        updates.confirmedNoCriticalAllergens ??
+        organization.safetyProfile?.confirmedNoCriticalAllergens ??
+        false,
+    };
+  }
+
+  if (
+    updates.contactName !== undefined ||
+    updates.contactEmail !== undefined ||
+    updates.contactPhone !== undefined ||
+    updates.defaultContractOptions !== undefined ||
+    updates.orderingStepAcknowledged !== undefined
+  ) {
+    organization.consumerSettings = {
+      ...mergeConsumerSettings(organization.consumerSettings),
+      ...(updates.contactName !== undefined ? { contactName: updates.contactName } : {}),
+      ...(updates.contactEmail !== undefined ? { contactEmail: updates.contactEmail } : {}),
+      ...(updates.contactPhone !== undefined ? { contactPhone: updates.contactPhone } : {}),
+      ...(updates.orderingStepAcknowledged !== undefined
+        ? { orderingStepAcknowledged: updates.orderingStepAcknowledged }
+        : {}),
+      ...(updates.defaultContractOptions
+        ? {
+            defaultContractOptions: {
+              ...mergeConsumerSettings(organization.consumerSettings).defaultContractOptions,
+              ...updates.defaultContractOptions,
+            },
+          }
+        : {}),
+    };
+  }
+
+  return getMockConsumerOnboarding();
+};
+
+export const completeMockConsumerOnboarding = ():
+  | ReturnType<typeof getMockConsumerOnboarding>
+  | { error: string } => {
+  const organization = getMockOrganization('consumer');
+  if (!organization || organization.type !== 'consumer') return null;
+
+  const snapshot = evaluateConsumerOnboarding({
+    name: organization.name,
+    address: organization.address,
+    safetyProfile: organization.safetyProfile,
+    consumerSettings: organization.consumerSettings,
+    onboardingCompletedAt: organization.onboardingCompletedAt,
+    orderingStepAcknowledged: mergeConsumerSettings(organization.consumerSettings)
+      .orderingStepAcknowledged,
+  });
+
+  const facilityItem = snapshot.checklist.find((item) => item.id === 'facility');
+  const safetyItem = snapshot.checklist.find((item) => item.id === 'safety');
+  const orderingItem = snapshot.checklist.find((item) => item.id === 'ordering');
+  if (!facilityItem?.complete || !safetyItem?.complete || !orderingItem?.complete) {
+    return { error: 'Complete your facility profile, safety settings, and ordering preferences.' };
+  }
+
+  organization.onboardingCompletedAt = new Date().toISOString();
+  return getMockConsumerOnboarding();
 };
 
 export const getMockReviews = (filters?: {
