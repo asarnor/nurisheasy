@@ -3,20 +3,16 @@
 import React from 'react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-
-interface CartItem {
-  id: string;
-  name: string;
-  quantity: number;
-  price: number;
-  vendorId: string;
-  vendorName: string;
-}
+import {
+  formatCartLineSchedule,
+  getCartSubtotalCents,
+  type ConsumerCartItem,
+} from '@/lib/consumer-cart';
 
 interface MultiVendorCartProps {
-  items: CartItem[];
+  items: ConsumerCartItem[];
   onCheckout: () => void;
-  onRemoveItem?: (id: string) => void;
+  onRemoveItem?: (lineId: string) => void;
 }
 
 export const MultiVendorCart: React.FC<MultiVendorCartProps> = ({
@@ -24,54 +20,59 @@ export const MultiVendorCart: React.FC<MultiVendorCartProps> = ({
   onCheckout,
   onRemoveItem,
 }) => {
-  // Group items by vendor
-  const itemsByVendor = items.reduce((acc, item) => {
-    if (!acc[item.vendorId]) {
-      acc[item.vendorId] = {
-        vendorName: item.vendorName,
-        items: [],
-      };
-    }
-    acc[item.vendorId].items.push(item);
-    return acc;
-  }, {} as Record<string, { vendorName: string; items: CartItem[] }>);
+  const itemsByVendor = items.reduce(
+    (acc, item) => {
+      if (!acc[item.vendorId]) {
+        acc[item.vendorId] = {
+          vendorName: item.vendorName,
+          items: [],
+        };
+      }
+      acc[item.vendorId].items.push(item);
+      return acc;
+    },
+    {} as Record<string, { vendorName: string; items: ConsumerCartItem[] }>
+  );
 
-  const totalPrice = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const totalPrice = getCartSubtotalCents(items);
+  const dishCount = items.reduce((sum, item) => sum + item.quantity, 0);
 
   return (
     <Card className="h-full">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-xl font-semibold text-slate-900">Multi-Vendor Cart</h2>
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="text-xl font-semibold text-slate-900">Contract cart</h2>
         <span className="text-xs font-semibold text-slate-500">
-          {items.length} item{items.length !== 1 ? 's' : ''}
+          {dishCount} dish{dishCount !== 1 ? 'es' : ''}
         </span>
       </div>
-      
-      <div className="space-y-4 max-h-[calc(100vh-300px)] overflow-y-auto">
+
+      <div className="max-h-[calc(100vh-300px)] space-y-4 overflow-y-auto">
         {Object.entries(itemsByVendor).map(([vendorId, vendorData]) => (
           <div key={vendorId} className="border-b border-slate-200 pb-4 last:border-b-0">
-            <h3 className="font-semibold text-slate-700 mb-2">{vendorData.vendorName}</h3>
-            <div className="space-y-2">
+            <h3 className="mb-2 font-semibold text-slate-700">{vendorData.vendorName}</h3>
+            <div className="space-y-3">
               {vendorData.items.map((item) => (
-                <div key={item.id} className="flex items-center justify-between text-sm">
-                  <div className="flex-1">
-                    <p className="font-medium text-slate-800">{item.name}</p>
-                    <p className="text-slate-500">
-                      Qty: {item.quantity} × ${(item.price / 100).toFixed(2)}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold text-slate-800">
-                      ${((item.price * item.quantity) / 100).toFixed(2)}
-                    </span>
-                    {onRemoveItem && (
-                      <button
-                        onClick={() => onRemoveItem(item.id)}
-                        className="text-rose-600 hover:text-rose-800"
-                      >
-                        ×
-                      </button>
-                    )}
+                <div key={item.lineId} className="rounded-xl bg-slate-50 px-3 py-2 text-sm">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1">
+                      <p className="font-medium text-slate-800">{item.name}</p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {formatCartLineSchedule(item)}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-slate-800">
+                        ${((item.price * item.quantity) / 100).toFixed(2)}
+                      </span>
+                      {onRemoveItem && (
+                        <button
+                          onClick={() => onRemoveItem(item.lineId)}
+                          className="text-rose-600 hover:text-rose-800"
+                        >
+                          ×
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))}
@@ -79,11 +80,13 @@ export const MultiVendorCart: React.FC<MultiVendorCartProps> = ({
           </div>
         ))}
       </div>
-      
-      <div className="mt-6 pt-4 border-t border-slate-200">
-        <div className="flex justify-between items-center mb-4">
-          <span className="text-lg font-semibold text-slate-700">Total Price</span>
-          <span className="text-2xl font-semibold text-slate-900">${(totalPrice / 100).toFixed(2)}</span>
+
+      <div className="mt-6 border-t border-slate-200 pt-4">
+        <div className="mb-4 flex items-center justify-between">
+          <span className="text-lg font-semibold text-slate-700">Food subtotal</span>
+          <span className="text-2xl font-semibold text-slate-900">
+            ${(totalPrice / 100).toFixed(2)}
+          </span>
         </div>
         <Button
           onClick={onCheckout}
@@ -91,7 +94,7 @@ export const MultiVendorCart: React.FC<MultiVendorCartProps> = ({
           size="lg"
           disabled={items.length === 0}
         >
-          Checkout
+          Review contract summary
         </Button>
       </div>
     </Card>

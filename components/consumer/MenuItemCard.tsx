@@ -1,10 +1,19 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import Image from 'next/image';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
+import {
+  MenuItemOrderOptions,
+  buildMenuItemOrderDefaults,
+  type MenuItemOrderOptionsValue,
+} from '@/components/consumer/MenuItemOrderOptions';
+import { normalizePreparationDays } from '@/lib/consumer-cart';
+import type { ContractDurationMonths } from '@/lib/contract-options';
+import type { MealCategory } from '@/lib/meal-categories';
+import type { OrderContractOptions } from '@/lib/contract-options';
 
 interface MenuItemCardProps {
   id: string;
@@ -14,9 +23,16 @@ interface MenuItemCardProps {
   imageUrl?: string;
   vendorName: string;
   allergenTags: string[];
-  quantity: number;
-  onQuantityChange: (id: string, quantity: number) => void;
-  onAddToCart: (id: string) => void;
+  defaultMealPeriod?: MealCategory;
+  defaultContractOptions?: Partial<OrderContractOptions>;
+  offeredContractDurations?: ContractDurationMonths[];
+  preparationDays?: number[];
+  mealPeriods?: MealCategory[];
+  offersPickup?: boolean;
+  offersDelivery?: boolean;
+  onAddConfiguredItem: (
+    item: MenuItemOrderOptionsValue & { menuItemId: string }
+  ) => void;
 }
 
 export const MenuItemCard: React.FC<MenuItemCardProps> = ({
@@ -27,33 +43,99 @@ export const MenuItemCard: React.FC<MenuItemCardProps> = ({
   imageUrl,
   vendorName,
   allergenTags,
-  quantity,
-  onQuantityChange,
-  onAddToCart,
+  defaultMealPeriod,
+  defaultContractOptions,
+  offeredContractDurations,
+  preparationDays,
+  mealPeriods,
+  offersPickup,
+  offersDelivery,
+  onAddConfiguredItem,
 }) => {
+  const [orderOptions, setOrderOptions] = useState<MenuItemOrderOptionsValue>(() =>
+    buildMenuItemOrderDefaults(defaultContractOptions, defaultMealPeriod, preparationDays)
+  );
+
+  useEffect(() => {
+    setOrderOptions(
+      buildMenuItemOrderDefaults(defaultContractOptions, defaultMealPeriod, preparationDays)
+    );
+  }, [defaultContractOptions, defaultMealPeriod, preparationDays, id]);
+
+  useEffect(() => {
+    setOrderOptions((current) => {
+      let next = current;
+      if (
+        offeredContractDurations?.length &&
+        !offeredContractDurations.includes(current.contractDurationMonths)
+      ) {
+        next = { ...next, contractDurationMonths: offeredContractDurations[0] };
+      }
+      if (preparationDays?.length) {
+        const filteredDays = normalizePreparationDays(
+          current.preparationDays.filter((day) => preparationDays.includes(day))
+        );
+        next = {
+          ...next,
+          preparationDays: filteredDays.length ? filteredDays : [preparationDays[0]],
+        };
+      }
+      if (mealPeriods?.length && !mealPeriods.includes(current.mealPeriod)) {
+        next = { ...next, mealPeriod: mealPeriods[0] };
+      }
+      if (!offersDelivery && next.fulfillmentMethod === 'delivery') {
+        next = { ...next, fulfillmentMethod: 'pickup' };
+      }
+      if (!offersPickup && next.fulfillmentMethod === 'pickup') {
+        next = { ...next, fulfillmentMethod: 'delivery' };
+      }
+      return next;
+    });
+  }, [
+    offeredContractDurations,
+    preparationDays,
+    mealPeriods,
+    offersPickup,
+    offersDelivery,
+    id,
+  ]);
+
   const formattedPrice = (price / 100).toFixed(2);
+
+  const handleAdd = () => {
+    onAddConfiguredItem({
+      ...orderOptions,
+      preparationDays: normalizePreparationDays(orderOptions.preparationDays),
+      menuItemId: id,
+    });
+    setOrderOptions((current) => ({
+      ...buildMenuItemOrderDefaults(defaultContractOptions, defaultMealPeriod, preparationDays),
+      quantity: 1,
+      contractDurationMonths: current.contractDurationMonths,
+      preparationDays: current.preparationDays,
+      mealPeriod: current.mealPeriod,
+      fulfillmentMethod: current.fulfillmentMethod,
+    }));
+  };
 
   return (
     <Card className="overflow-hidden group animate-fade-up">
       <div className="relative h-44 bg-gradient-to-br from-emerald-50 via-white to-amber-50">
         {imageUrl ? (
-          <Image
-            src={imageUrl}
-            alt={name}
-            fill
-            className="object-cover"
-          />
+          <Image src={imageUrl} alt={name} fill className="object-cover" />
         ) : (
           <div className="flex items-center justify-center h-full text-slate-400 text-sm">
             Freshly prepared
           </div>
         )}
         <div className="absolute top-2 right-2">
-          <Badge variant="success" className="bg-emerald-50">Safety Match</Badge>
+          <Badge variant="success" className="bg-emerald-50">
+            Safety Match
+          </Badge>
         </div>
       </div>
-      
-      <div className="p-4 space-y-3">
+
+      <div className="space-y-4 p-4">
         <div>
           <h3 className="font-semibold text-lg text-slate-900">{name}</h3>
           <p className="text-sm text-slate-500">{vendorName}</p>
@@ -62,9 +144,7 @@ export const MenuItemCard: React.FC<MenuItemCardProps> = ({
         <div className="flex items-center justify-between">
           <span className="text-2xl font-semibold text-slate-900">${formattedPrice}</span>
           {rating > 0 && (
-            <div className="flex items-center text-sm text-slate-500">
-              ⭐ {rating}
-            </div>
+            <div className="flex items-center text-sm text-slate-500">⭐ {rating}</div>
           )}
         </div>
 
@@ -74,32 +154,26 @@ export const MenuItemCard: React.FC<MenuItemCardProps> = ({
           </div>
         )}
 
-        {quantity === 0 ? (
-          <Button onClick={() => onAddToCart(id)} className="w-full" size="sm">
-            Add to Cart
-          </Button>
-        ) : (
-          <div className="flex items-center gap-2">
-            <div className="flex items-center border border-slate-200 rounded-xl bg-white/80">
-              <button
-                onClick={() => onQuantityChange(id, Math.max(0, quantity - 1))}
-                className="px-3 py-1 text-slate-600 hover:bg-slate-100 rounded-l-xl"
-              >
-                −
-              </button>
-              <span className="px-4 py-1 text-sm font-semibold text-slate-700">{quantity}</span>
-              <button
-                onClick={() => onQuantityChange(id, quantity + 1)}
-                className="px-3 py-1 text-slate-600 hover:bg-slate-100 rounded-r-xl"
-              >
-                +
-              </button>
-            </div>
-            <Button onClick={() => onAddToCart(id)} className="flex-1" size="sm">
-              Add Another
-            </Button>
-          </div>
-        )}
+        <MenuItemOrderOptions
+          value={orderOptions}
+          onChange={setOrderOptions}
+          inputNamePrefix={`menu-item-${id}`}
+          offeredContractDurations={offeredContractDurations}
+          preparationDays={preparationDays}
+          mealPeriods={mealPeriods}
+          offersPickup={offersPickup}
+          offersDelivery={offersDelivery}
+          compact
+        />
+
+        <Button
+          onClick={handleAdd}
+          className="w-full"
+          size="sm"
+          disabled={orderOptions.preparationDays.length === 0}
+        >
+          Add {orderOptions.quantity} to cart
+        </Button>
       </div>
     </Card>
   );

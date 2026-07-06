@@ -16,8 +16,15 @@ import { Button } from '@/components/ui/Button';
 import { useRouter } from 'next/navigation';
 import { apiFetch } from '@/lib/utils/api';
 import { consumerPath } from '@/lib/utils/debug-client';
+import {
+  mergeCartLine,
+  parseStoredCart,
+  type ConsumerCartItem,
+} from '@/lib/consumer-cart';
+import { DEFAULT_CONTRACT_OPTIONS, type OrderContractOptions } from '@/lib/contract-options';
 import type { MealCategory } from '@/lib/meal-categories';
 import type { MarketplaceVendorListing } from '@/lib/marketplace-vendors';
+import type { MenuItemOrderOptionsValue } from '@/components/consumer/MenuItemOrderOptions';
 
 interface MenuItem {
   id: string;
@@ -34,15 +41,6 @@ interface MenuItem {
   category?: string;
 }
 
-interface CartItem {
-  id: string;
-  name: string;
-  quantity: number;
-  price: number;
-  vendorId: string;
-  vendorName: string;
-}
-
 export default function MarketplacePage() {
   const router = useRouter();
   const [vendorFilters, setVendorFilters] = useState<VendorMarketplaceFilterState>(
@@ -51,7 +49,10 @@ export default function MarketplacePage() {
   const [vendors, setVendors] = useState<MarketplaceVendorListing[]>([]);
   const [selectedVendorId, setSelectedVendorId] = useState<string | null>(null);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
-  const [cart, setCart] = useState<CartItem[]>([]);
+  const [cart, setCart] = useState<ConsumerCartItem[]>([]);
+  const [defaultContractOptions, setDefaultContractOptions] = useState<OrderContractOptions>(
+    DEFAULT_CONTRACT_OPTIONS
+  );
   const [loadingVendors, setLoadingVendors] = useState(true);
   const [loadingMenu, setLoadingMenu] = useState(false);
 
@@ -61,9 +62,24 @@ export default function MarketplacePage() {
   );
 
   useEffect(() => {
-    const savedCart = localStorage.getItem('cart');
-    if (savedCart) {
-      setCart(JSON.parse(savedCart));
+    setCart(parseStoredCart(localStorage.getItem('cart')));
+
+    const savedDefaults = localStorage.getItem('defaultContractOptions');
+    if (savedDefaults) {
+      try {
+        setDefaultContractOptions(JSON.parse(savedDefaults));
+      } catch {
+        // ignore invalid saved defaults
+      }
+    } else {
+      apiFetch('/api/consumer/settings')
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (data?.settings?.defaultContractOptions) {
+            setDefaultContractOptions(data.settings.defaultContractOptions);
+          }
+        })
+        .catch(() => undefined);
     }
   }, []);
 
@@ -127,76 +143,36 @@ export default function MarketplacePage() {
     }
   };
 
-  const handleQuantityChange = (id: string, quantity: number) => {
-    setCart((prev) => {
-      const existing = prev.find((item) => item.id === id);
-      const menuItem = menuItems.find((item) => item.id === id);
-
-      if (quantity <= 0) {
-        return prev.filter((item) => item.id !== id);
-      }
-
-      if (existing) {
-        return prev.map((item) =>
-          item.id === id ? { ...item, quantity } : item
-        );
-      }
-
-      if (!menuItem) {
-        return prev;
-      }
-
-      return [
-        ...prev,
-        {
-          id: menuItem.id,
-          name: menuItem.name,
-          quantity,
-          price: menuItem.price,
-          vendorId: menuItem.vendorId,
-          vendorName: menuItem.vendorName,
-        },
-      ];
-    });
+  const handleAddConfiguredItem = (
+    menuItem: MenuItem,
+    options: MenuItemOrderOptionsValue & { menuItemId: string }
+  ) => {
+    setCart((prev) =>
+      mergeCartLine(prev, {
+        menuItemId: menuItem.id,
+        name: menuItem.name,
+        quantity: options.quantity,
+        price: menuItem.price,
+        vendorId: menuItem.vendorId,
+        vendorName: menuItem.vendorName,
+        contractDurationMonths: options.contractDurationMonths,
+        preparationDays: options.preparationDays,
+        mealPeriod: options.mealPeriod,
+        fulfillmentMethod: options.fulfillmentMethod,
+      })
+    );
   };
 
-  const handleAddToCart = (id: string) => {
-    const menuItem = menuItems.find((item) => item.id === id);
-    if (!menuItem) return;
-
-    setCart((prev) => {
-      const existing = prev.find((item) => item.id === id);
-      if (existing) {
-        return prev.map((item) =>
-          item.id === id ? { ...item, quantity: item.quantity + 1 } : item
-        );
-      }
-      return [
-        ...prev,
-        {
-          id: menuItem.id,
-          name: menuItem.name,
-          quantity: 1,
-          price: menuItem.price,
-          vendorId: menuItem.vendorId,
-          vendorName: menuItem.vendorName,
-        },
-      ];
-    });
-  };
-
-  const handleRemoveFromCart = (id: string) => {
-    setCart((prev) => prev.filter((item) => item.id !== id));
+  const handleRemoveFromCart = (lineId: string) => {
+    setCart((prev) => prev.filter((item) => item.lineId !== lineId));
   };
 
   const handleCheckout = () => {
     router.push(consumerPath('/cart'));
   };
 
-  const getCartItemQuantity = (id: string) => {
-    const item = cart.find((item) => item.id === id);
-    return item?.quantity || 0;
-  };
+  const defaultMealPeriod =
+    vendorFilters.meal !== 'all' ? vendorFilters.meal : undefined;
 
   return (
     <ConsumerShell
@@ -262,7 +238,7 @@ export default function MarketplacePage() {
               </h2>
               <p className="text-sm text-slate-500">
                 {selectedVendor
-                  ? 'Items below already exclude your facility’s critical allergens.'
+                  ? 'Configure contract length, prep day, and meal period for each dish before adding to cart.'
                   : 'Select a vendor above to browse their menu.'}
               </p>
             </div>
@@ -292,9 +268,16 @@ export default function MarketplacePage() {
                     imageUrl={item.displayImageUrl || item.imageUrl}
                     vendorName={item.vendorName}
                     allergenTags={item.allergenTags}
-                    quantity={getCartItemQuantity(item.id)}
-                    onQuantityChange={handleQuantityChange}
-                    onAddToCart={handleAddToCart}
+                    defaultMealPeriod={defaultMealPeriod}
+                    defaultContractOptions={defaultContractOptions}
+                    offeredContractDurations={selectedVendor.offeredContractDurations}
+                    preparationDays={selectedVendor.preparationDays}
+                    mealPeriods={selectedVendor.mealPeriods}
+                    offersPickup={selectedVendor.offersPickup}
+                    offersDelivery={selectedVendor.offersDelivery}
+                    onAddConfiguredItem={(options) =>
+                      handleAddConfiguredItem(item, options)
+                    }
                   />
                 ))}
               </div>
