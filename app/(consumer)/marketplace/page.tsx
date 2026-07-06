@@ -1,15 +1,23 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { MenuItemCard } from '@/components/consumer/MenuItemCard';
 import { MultiVendorCart } from '@/components/consumer/MultiVendorCart';
-import { DietaryFilter } from '@/components/consumer/DietaryFilter';
-import { MealPeriodFilter } from '@/components/consumer/MealPeriodFilter';
+import { VendorCard } from '@/components/consumer/VendorCard';
+import {
+  VendorMarketplaceFilters,
+  DEFAULT_VENDOR_MARKETPLACE_FILTERS,
+  buildVendorFilterQuery,
+  type VendorMarketplaceFilterState,
+} from '@/components/consumer/VendorMarketplaceFilters';
 import { ConsumerShell } from '@/components/layout/ConsumerShell';
+import { Card } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
 import { useRouter } from 'next/navigation';
 import { apiFetch } from '@/lib/utils/api';
 import { consumerPath } from '@/lib/utils/debug-client';
 import type { MealCategory } from '@/lib/meal-categories';
+import type { MarketplaceVendorListing } from '@/lib/marketplace-vendors';
 
 interface MenuItem {
   id: string;
@@ -37,15 +45,20 @@ interface CartItem {
 
 export default function MarketplacePage() {
   const router = useRouter();
+  const [vendorFilters, setVendorFilters] = useState<VendorMarketplaceFilterState>(
+    DEFAULT_VENDOR_MARKETPLACE_FILTERS
+  );
+  const [vendors, setVendors] = useState<MarketplaceVendorListing[]>([]);
+  const [selectedVendorId, setSelectedVendorId] = useState<string | null>(null);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
-  const [filter, setFilter] = useState('all');
-  const [mealPeriod, setMealPeriod] = useState<MealCategory>('dinner');
-  const [loading, setLoading] = useState(true);
+  const [loadingVendors, setLoadingVendors] = useState(true);
+  const [loadingMenu, setLoadingMenu] = useState(false);
 
-  useEffect(() => {
-    fetchMenuItems();
-  }, [filter, mealPeriod]);
+  const selectedVendor = useMemo(
+    () => vendors.find((vendor) => vendor.id === selectedVendorId) || null,
+    [vendors, selectedVendorId]
+  );
 
   useEffect(() => {
     const savedCart = localStorage.getItem('cart');
@@ -58,16 +71,59 @@ export default function MarketplacePage() {
     localStorage.setItem('cart', JSON.stringify(cart));
   }, [cart]);
 
-  const fetchMenuItems = async () => {
+  useEffect(() => {
+    fetchVendors();
+  }, [vendorFilters]);
+
+  useEffect(() => {
+    if (!selectedVendorId) {
+      setMenuItems([]);
+      return;
+    }
+    fetchMenuItems(selectedVendorId);
+  }, [selectedVendorId, vendorFilters.meal]);
+
+  useEffect(() => {
+    if (!vendors.length) {
+      setSelectedVendorId(null);
+      return;
+    }
+
+    if (!selectedVendorId || !vendors.some((vendor) => vendor.id === selectedVendorId)) {
+      setSelectedVendorId(vendors[0].id);
+    }
+  }, [vendors, selectedVendorId]);
+
+  const fetchVendors = async () => {
     try {
-      setLoading(true);
-      const response = await apiFetch(`/api/menus?meal=${mealPeriod}`);
+      setLoadingVendors(true);
+      const query = buildVendorFilterQuery(vendorFilters);
+      const response = await apiFetch(`/api/vendors${query ? `?${query}` : ''}`);
+      const data = await response.json();
+      setVendors(data.vendors || []);
+    } catch (error) {
+      console.error('Error fetching vendors:', error);
+      setVendors([]);
+    } finally {
+      setLoadingVendors(false);
+    }
+  };
+
+  const fetchMenuItems = async (vendorId: string) => {
+    try {
+      setLoadingMenu(true);
+      const mealQuery =
+        vendorFilters.meal !== 'all' ? `&meal=${vendorFilters.meal}` : '';
+      const response = await apiFetch(
+        `/api/menus?vendorId=${vendorId}${mealQuery}`
+      );
       const data = await response.json();
       setMenuItems(data.items || []);
     } catch (error) {
       console.error('Error fetching menus:', error);
+      setMenuItems([]);
     } finally {
-      setLoading(false);
+      setLoadingMenu(false);
     }
   };
 
@@ -142,51 +198,108 @@ export default function MarketplacePage() {
     return item?.quantity || 0;
   };
 
-  const activeFilters = filter !== 'all' ? [filter] : [];
-
   return (
     <ConsumerShell
       active="marketplace"
       title="Marketplace"
-      subtitle="Browse vendor menus curated for your dietary requirements."
+      subtitle="Choose a published vendor, then browse their menu with your safety filters applied."
     >
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        <div className="lg:col-span-3 space-y-6">
-          <MealPeriodFilter value={mealPeriod} onChange={setMealPeriod} />
-
-          <DietaryFilter
-            value={filter}
-            onChange={setFilter}
-            activeFilters={activeFilters}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-4">
+        <div className="space-y-6 lg:col-span-3">
+          <VendorMarketplaceFilters
+            value={vendorFilters}
+            onChange={setVendorFilters}
+            resultCount={vendors.length}
+            onClear={() => setVendorFilters(DEFAULT_VENDOR_MARKETPLACE_FILTERS)}
           />
 
-          {loading ? (
-            <div className="text-center py-12">
-              <p className="text-slate-500">Loading menu items...</p>
+          <section className="space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-xl font-semibold text-slate-900">Published vendors</h2>
+                <p className="text-sm text-slate-500">
+                  Select a vendor to view their menu and add items to your cart.
+                </p>
+              </div>
             </div>
-          ) : menuItems.length === 0 ? (
-            <div className="text-center py-12">
-              <p className="text-slate-500">No menu items available for this meal period</p>
+
+            {loadingVendors ? (
+              <Card className="py-10 text-center text-slate-500">
+                Loading published vendors...
+              </Card>
+            ) : vendors.length === 0 ? (
+              <Card className="py-10 text-center">
+                <p className="font-medium text-slate-800">No vendors match these filters</p>
+                <p className="mt-2 text-sm text-slate-500">
+                  Try clearing dietary or preparation filters, or search with broader keywords.
+                </p>
+                <Button
+                  variant="secondary"
+                  className="mt-4"
+                  onClick={() => setVendorFilters(DEFAULT_VENDOR_MARKETPLACE_FILTERS)}
+                >
+                  Reset filters
+                </Button>
+              </Card>
+            ) : (
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                {vendors.map((vendor) => (
+                  <VendorCard
+                    key={vendor.id}
+                    vendor={vendor}
+                    selected={vendor.id === selectedVendorId}
+                    onSelect={setSelectedVendorId}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="space-y-4">
+            <div>
+              <h2 className="text-xl font-semibold text-slate-900">
+                {selectedVendor ? `${selectedVendor.name} menu` : 'Vendor menu'}
+              </h2>
+              <p className="text-sm text-slate-500">
+                {selectedVendor
+                  ? 'Items below already exclude your facility’s critical allergens.'
+                  : 'Select a vendor above to browse their menu.'}
+              </p>
             </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-              {menuItems.map((item) => (
-                <MenuItemCard
-                  key={item.id}
-                  id={item.id}
-                  name={item.name}
-                  price={item.price}
-                  rating={4.5}
-                  imageUrl={item.displayImageUrl || item.imageUrl}
-                  vendorName={item.vendorName}
-                  allergenTags={item.allergenTags}
-                  quantity={getCartItemQuantity(item.id)}
-                  onQuantityChange={handleQuantityChange}
-                  onAddToCart={handleAddToCart}
-                />
-              ))}
-            </div>
-          )}
+
+            {!selectedVendor ? (
+              <Card className="py-10 text-center text-slate-500">
+                Choose a published vendor to see available menu items.
+              </Card>
+            ) : loadingMenu ? (
+              <Card className="py-10 text-center text-slate-500">
+                Loading menu items...
+              </Card>
+            ) : menuItems.length === 0 ? (
+              <Card className="py-10 text-center text-slate-500">
+                No menu items available for this vendor
+                {vendorFilters.meal !== 'all' ? ` during ${vendorFilters.meal}` : ''}.
+              </Card>
+            ) : (
+              <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+                {menuItems.map((item) => (
+                  <MenuItemCard
+                    key={item.id}
+                    id={item.id}
+                    name={item.name}
+                    price={item.price}
+                    rating={4.5}
+                    imageUrl={item.displayImageUrl || item.imageUrl}
+                    vendorName={item.vendorName}
+                    allergenTags={item.allergenTags}
+                    quantity={getCartItemQuantity(item.id)}
+                    onQuantityChange={handleQuantityChange}
+                    onAddToCart={handleAddToCart}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
         </div>
 
         <div className="lg:col-span-1">

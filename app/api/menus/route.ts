@@ -138,7 +138,18 @@ export async function GET(request: NextRequest) {
       query.mealCategories = meal;
     }
 
-    let menuItems = await MenuItem.find(query).populate('vendorId', 'name address');
+    let menuItems = await MenuItem.find(query).populate(
+      'vendorId',
+      'name address marketplaceVisible vendorSettings'
+    );
+
+    menuItems = menuItems.filter((item: any) => {
+      const vendor = item.vendorId;
+      if (!vendor || vendor.marketplaceVisible === false) {
+        return false;
+      }
+      return true;
+    });
 
     // Filter by delivery radius if consumer has coordinates
     if (organization.address?.coordinates) {

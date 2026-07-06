@@ -13,6 +13,11 @@ import {
 } from '@/lib/vendor-settings';
 import { evaluateVendorOnboarding } from '@/lib/vendor-onboarding';
 import {
+  buildMarketplaceVendorListing,
+  filterMarketplaceVendors,
+  type MarketplaceVendorFilters,
+} from '@/lib/marketplace-vendors';
+import {
   DEFAULT_CONSUMER_SETTINGS,
   mergeConsumerSettings,
   type ConsumerSettings,
@@ -240,6 +245,7 @@ const createMockStore = (): MockStore => {
         defaultPrepTimeMinutes: 50,
         certifications: ['HALAL'],
         minimumOrderCents: 3000,
+        offeredContractDurations: [6, 9, 12],
         acceptingNewContracts: true,
       },
     },
@@ -1352,6 +1358,42 @@ export const updateMockConsumerSettings = (updates?: Partial<ConsumerSettings>) 
   }
 
   return getMockConsumerSettings();
+};
+
+export const getMockMarketplaceVendors = (filters: MarketplaceVendorFilters = {}) => {
+  const store = getMockStore();
+  const reviews = store.reviews || [];
+
+  const listings = store.organizations.vendors
+    .filter((vendor) => vendor.marketplaceVisible !== false)
+    .map((vendor) => {
+      const vendorReviews = reviews.filter((review) => review.vendorId === vendor.id);
+      const averageRating = vendorReviews.length
+        ? vendorReviews.reduce((sum, review) => sum + review.rating, 0) /
+          vendorReviews.length
+        : null;
+
+      return buildMarketplaceVendorListing({
+        id: vendor.id,
+        name: vendor.name,
+        address: vendor.address,
+        vendorSettings: vendor.vendorSettings,
+        menuItems: store.menuItems,
+        averageRating,
+        reviewCount: vendorReviews.length,
+      });
+    });
+
+  const settingsByVendorId = Object.fromEntries(
+    store.organizations.vendors.map((vendor) => [vendor.id, vendor.vendorSettings])
+  );
+
+  return filterMarketplaceVendors(
+    listings,
+    store.menuItems,
+    filters,
+    settingsByVendorId
+  );
 };
 
 export const getMockReviews = (filters?: {
