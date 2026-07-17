@@ -258,11 +258,8 @@ export async function POST(request: NextRequest) {
           name: string;
           quantity: number;
           price: number;
-<<<<<<< HEAD
           allergenTags?: string[];
           allergenAttestedAt?: Date | string;
-=======
->>>>>>> origin/main
         }> = [];
 
         for (const item of items) {
