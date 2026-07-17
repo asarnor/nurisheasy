@@ -238,7 +238,14 @@ export async function POST(request: NextRequest) {
 
       for (const [vendorId, items] of vendorGroups) {
         let vendorTotal = 0;
-        const subOrderItems = [];
+        const subOrderItems: Array<{
+          menuItemId: any;
+          name: string;
+          quantity: number;
+          price: number;
+          allergenTags?: string[];
+          allergenAttestedAt?: Date | string;
+        }> = [];
 
         for (const item of items) {
           const menuItem = menuItems.find((mi) => mi._id.toString() === item.menuItemId);
@@ -252,6 +259,11 @@ export async function POST(request: NextRequest) {
             name: menuItem.name,
             quantity: item.quantity,
             price: menuItem.price,
+            allergenTags: [...(menuItem.allergenTags || [])],
+            allergenAttestedAt:
+              menuItem.lastAttestedAt ||
+              menuItem.allergenAttestation?.attestedAt ||
+              menuItem.lastVerifiedAt,
           });
         }
 

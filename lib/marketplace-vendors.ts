@@ -8,6 +8,8 @@ import { isMealCategory, itemMatchesMeal, type MealCategory } from '@/lib/meal-c
 import {
   mergeVendorSettings,
   VENDOR_CERTIFICATIONS,
+  type AllergenTag,
+  type CertificationsReviewStatus,
   type VendorCertification,
   type VendorSettings,
 } from '@/lib/vendor-settings';
@@ -35,6 +37,8 @@ export interface MarketplaceVendorListing {
   averageRating: number | null;
   reviewCount: number;
   certifications: VendorCertification[];
+  certificationsReviewStatus: CertificationsReviewStatus;
+  facilityAllergensHandled: AllergenTag[];
   preparationDays: number[];
   mealPeriods: MealCategory[];
   offeredContractDurations: ContractDurationMonths[];
@@ -231,6 +235,8 @@ export const buildMarketplaceVendorListing = (input: {
     averageRating: input.averageRating ?? null,
     reviewCount: input.reviewCount ?? 0,
     certifications: settings.certifications,
+    certificationsReviewStatus: settings.certificationsReviewStatus,
+    facilityAllergensHandled: settings.facilityAllergensHandled,
     preparationDays: settings.preparationDays,
     mealPeriods: settings.mealPeriods,
     offeredContractDurations: settings.offeredContractDurations,

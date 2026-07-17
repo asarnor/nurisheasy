@@ -4,8 +4,8 @@ import Organization from '@/lib/models/organization.model';
 import MenuItem from '@/lib/models/menu.model';
 import { getCurrentOrganization } from '@/lib/utils/clerk';
 import { isWithinDeliveryRadius } from '@/lib/utils/geospatial';
-import { shouldUseMockData } from '@/lib/utils/debug';
-import { getMockMarketplaceVendors } from '@/lib/mock-data';
+import { shouldUseMockData, getDebugRoleFromRequest } from '@/lib/utils/debug';
+import { getMockMarketplaceVendors, getMockOrganization } from '@/lib/mock-data';
 import {
   buildMarketplaceVendorListing,
   filterMarketplaceVendors,
@@ -13,6 +13,8 @@ import {
   type MarketplaceMenuSnapshot,
 } from '@/lib/marketplace-vendors';
 import { mergeVendorSettings } from '@/lib/vendor-settings';
+import { getActivePlatformRules } from '@/lib/platform-rules';
+import { isMenuItemStale, toStaleRules } from '@/lib/menu-verification';
 
 /**
  * GET /api/vendors
@@ -23,8 +25,23 @@ export async function GET(request: NextRequest) {
     const filters = parseMarketplaceVendorFilters(request.nextUrl.searchParams);
 
     if (await shouldUseMockData(request)) {
+      const role = await getDebugRoleFromRequest(request);
+      const consumer = role === 'consumer' ? getMockOrganization('consumer') : null;
+      const criticalAllergens = consumer?.safetyProfile?.criticalAllergens || [];
+      const blockFacility = Boolean(
+        (consumer?.safetyProfile as any)?.blockFacilityCrossContact
+      );
+      let vendors = getMockMarketplaceVendors(filters);
+      if (blockFacility && criticalAllergens.length) {
+        vendors = vendors.filter(
+          (vendor) =>
+            !(vendor.facilityAllergensHandled || []).some((tag) =>
+              criticalAllergens.includes(tag)
+            )
+        );
+      }
       return NextResponse.json({
-        vendors: getMockMarketplaceVendors(filters),
+        vendors,
         filters,
       });
     }
@@ -63,17 +80,35 @@ export async function GET(request: NextRequest) {
       allergenTags: { $nin: organization.safetyProfile.criticalAllergens },
     }).lean();
 
-    const menuItems: MarketplaceMenuSnapshot[] = rawMenuItems.map((item: any) => ({
-      id: item._id?.toString?.() || String(item._id),
-      vendorId: item.vendorId?.toString?.() || String(item.vendorId),
-      name: item.name,
-      description: item.description,
-      allergenTags: item.allergenTags || [],
-      ingredients: item.ingredients || [],
-      mealCategories: item.mealCategories,
-      category: item.category,
-      isAvailable: item.isAvailable,
-    }));
+    const platformRules = await getActivePlatformRules();
+    const staleRules = toStaleRules(platformRules.inventory);
+
+    const menuItems: MarketplaceMenuSnapshot[] = rawMenuItems
+      .filter((item: any) => !isMenuItemStale(item, staleRules))
+      .map((item: any) => ({
+        id: item._id?.toString?.() || String(item._id),
+        vendorId: item.vendorId?.toString?.() || String(item.vendorId),
+        name: item.name,
+        description: item.description,
+        allergenTags: item.allergenTags || [],
+        ingredients: item.ingredients || [],
+        mealCategories: item.mealCategories,
+        category: item.category,
+        isAvailable: item.isAvailable,
+      }));
+
+    // Facility cross-contact hard block
+    const criticalAllergens = organization.safetyProfile.criticalAllergens || [];
+    const blockFacility = Boolean(
+      (organization.safetyProfile as any).blockFacilityCrossContact
+    );
+    if (blockFacility && criticalAllergens.length) {
+      availableVendors = availableVendors.filter((vendor) => {
+        const facility: string[] =
+          ((vendor.vendorSettings as any)?.facilityAllergensHandled as string[]) || [];
+        return !facility.some((tag) => criticalAllergens.includes(tag));
+      });
+    }
 
     const listings = availableVendors.map((vendor) => {
       const vendorId = vendor._id.toString();

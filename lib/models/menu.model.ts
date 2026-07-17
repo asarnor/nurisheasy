@@ -1,5 +1,12 @@
 import mongoose, { Schema, Document, Model } from 'mongoose';
 
+export interface IAllergenAttestation {
+  confirmedTags: string[];
+  confirmedAbsentTags: string[];
+  attestedBy: string;
+  attestedAt: Date;
+}
+
 export interface IMenuItem extends Document {
   vendorId: mongoose.Types.ObjectId;
   name: string;
@@ -9,6 +16,9 @@ export interface IMenuItem extends Document {
   allergenTags: string[];
   ingredients: string[];
   lastVerifiedAt: Date;
+  allergenAttestation?: IAllergenAttestation;
+  lastAttestedAt?: Date;
+  lastAttestedBy?: string;
   imageUrl?: string;
   mealCategories?: ('breakfast' | 'lunch' | 'dinner')[];
   category?: string; // legacy display label
@@ -70,6 +80,18 @@ const MenuItemSchema: Schema = new Schema(
       type: Date,
       default: Date.now,
     },
+    allergenAttestation: {
+      type: {
+        confirmedTags: { type: [String], default: [] },
+        confirmedAbsentTags: { type: [String], default: [] },
+        attestedBy: { type: String, default: '' },
+        attestedAt: { type: Date, default: Date.now },
+      },
+      default: undefined,
+      _id: false,
+    },
+    lastAttestedAt: { type: Date },
+    lastAttestedBy: { type: String },
     imageUrl: String,
     mealCategories: {
       type: [String],

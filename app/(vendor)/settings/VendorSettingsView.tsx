@@ -21,11 +21,13 @@ import {
   type MealCategory,
 } from '@/lib/meal-categories';
 import {
+  ALLERGEN_TAGS,
   DEFAULT_VENDOR_SETTINGS,
   VENDOR_CERTIFICATIONS,
   formatCentsAsDollars,
   parseDollarsToCents,
   toggleArrayItem,
+  type AllergenTag,
   type VendorCertification,
   type VendorSettings,
 } from '@/lib/vendor-settings';
@@ -169,6 +171,15 @@ export default function VendorSettingsView() {
   const toggleCertification = (cert: VendorCertification) => {
     updateSettings({
       certifications: toggleArrayItem(settings.certifications, cert),
+    });
+  };
+
+  const toggleFacilityAllergen = (allergen: AllergenTag) => {
+    updateSettings({
+      facilityAllergensHandled: toggleArrayItem(
+        settings.facilityAllergensHandled,
+        allergen
+      ),
     });
   };
 
@@ -460,53 +471,103 @@ export default function VendorSettingsView() {
     </div>
   );
 
-  const renderCompliance = () => (
-    <div className="space-y-6">
-      <Field label="Certifications & claims">
-        <div className="flex flex-wrap gap-2">
-          {VENDOR_CERTIFICATIONS.map((cert) => {
-            const active = settings.certifications.includes(cert.id);
-            return (
-              <button
-                key={cert.id}
-                type="button"
-                onClick={() => toggleCertification(cert.id)}
-                className={`rounded-full px-3 py-1.5 text-sm font-semibold ${
-                  active
-                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                    : 'bg-slate-100 text-slate-500 border border-slate-200'
-                }`}
-              >
-                {active ? '✓ ' : ''}
-                {cert.label}
-              </button>
-            );
-          })}
-        </div>
-      </Field>
+  const renderCompliance = () => {
+    const reviewStatus = settings.certificationsReviewStatus;
+    const reviewBadgeVariant =
+      reviewStatus === 'approved'
+        ? 'success'
+        : reviewStatus === 'rejected'
+        ? 'danger'
+        : 'warning';
+    const reviewLabel =
+      reviewStatus === 'approved'
+        ? 'Certifications approved'
+        : reviewStatus === 'rejected'
+        ? 'Review rejected — see admin notes'
+        : 'Certifications pending admin review';
 
-      <Field
-        label="Allergen handling policy"
-        description="How you prevent cross-contact — visible to group home administrators."
-      >
-        <textarea
-          value={settings.allergenPolicyNotes}
-          onChange={(e) => updateSettings({ allergenPolicyNotes: e.target.value })}
-          rows={4}
-          className="w-full rounded-xl border border-slate-200 bg-white/80 px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-        />
-      </Field>
+    return (
+      <div className="space-y-6">
+        <Field label="Certifications & claims">
+          <div className="mb-3">
+            <Badge variant={reviewBadgeVariant as any}>{reviewLabel}</Badge>
+            <p className="mt-1 text-xs text-slate-500">
+              Certifications you check below are self-reported until an admin
+              reviews them. Consumers see approved certifications without an
+              &ldquo;unverified&rdquo; label.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {VENDOR_CERTIFICATIONS.map((cert) => {
+              const active = settings.certifications.includes(cert.id);
+              return (
+                <button
+                  key={cert.id}
+                  type="button"
+                  onClick={() => toggleCertification(cert.id)}
+                  className={`rounded-full px-3 py-1.5 text-sm font-semibold ${
+                    active
+                      ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                      : 'bg-slate-100 text-slate-500 border border-slate-200'
+                  }`}
+                >
+                  {active ? '✓ ' : ''}
+                  {cert.label}
+                </button>
+              );
+            })}
+          </div>
+        </Field>
 
-      <Field label="Ingredient sourcing notes">
-        <textarea
-          value={settings.ingredientSourcingNotes}
-          onChange={(e) => updateSettings({ ingredientSourcingNotes: e.target.value })}
-          rows={3}
-          className="w-full rounded-xl border border-slate-200 bg-white/80 px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-        />
-      </Field>
-    </div>
-  );
+        <Field
+          label="Facility allergens handled"
+          description="Allergens handled anywhere in your kitchen — even if not in every dish. Consumers with strict allergies can hard-block vendors whose facility handles their critical allergens."
+        >
+          <div className="flex flex-wrap gap-2">
+            {ALLERGEN_TAGS.map((allergen) => {
+              const active = settings.facilityAllergensHandled.includes(allergen);
+              return (
+                <button
+                  key={allergen}
+                  type="button"
+                  onClick={() => toggleFacilityAllergen(allergen)}
+                  className={`rounded-full px-3 py-1.5 text-sm font-semibold ${
+                    active
+                      ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                      : 'bg-slate-100 text-slate-500 border border-slate-200'
+                  }`}
+                >
+                  {active ? '⚠ ' : ''}
+                  {allergen.replace(/_/g, ' ')}
+                </button>
+              );
+            })}
+          </div>
+        </Field>
+
+        <Field
+          label="Allergen handling policy"
+          description="How you prevent cross-contact — visible to group home administrators."
+        >
+          <textarea
+            value={settings.allergenPolicyNotes}
+            onChange={(e) => updateSettings({ allergenPolicyNotes: e.target.value })}
+            rows={4}
+            className="w-full rounded-xl border border-slate-200 bg-white/80 px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          />
+        </Field>
+
+        <Field label="Ingredient sourcing notes">
+          <textarea
+            value={settings.ingredientSourcingNotes}
+            onChange={(e) => updateSettings({ ingredientSourcingNotes: e.target.value })}
+            rows={3}
+            className="w-full rounded-xl border border-slate-200 bg-white/80 px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          />
+        </Field>
+      </div>
+    );
+  };
 
   const renderContracts = () => (
     <div className="space-y-6">

@@ -16,6 +16,23 @@ export const VENDOR_CERTIFICATIONS = [
 
 export type VendorCertification = (typeof VENDOR_CERTIFICATIONS)[number]['id'];
 
+export type CertificationsReviewStatus = 'pending' | 'approved' | 'rejected';
+
+export const ALLERGEN_TAGS = [
+  'PEANUT',
+  'TREE_NUT',
+  'SHELLFISH',
+  'FISH',
+  'EGG',
+  'DAIRY',
+  'SOY',
+  'WHEAT',
+  'GLUTEN',
+  'SESAME',
+] as const;
+
+export type AllergenTag = (typeof ALLERGEN_TAGS)[number];
+
 export interface VendorSettings {
   contactName: string;
   contactEmail: string;
@@ -33,8 +50,10 @@ export interface VendorSettings {
   autoAcceptOrders: boolean;
   kdsSoundEnabled: boolean;
   certifications: VendorCertification[];
+  certificationsReviewStatus: CertificationsReviewStatus;
   allergenPolicyNotes: string;
   ingredientSourcingNotes: string;
+  facilityAllergensHandled: AllergenTag[];
   offeredContractDurations: ContractDurationMonths[];
   minimumOrderCents: number;
   deliveryFeeCents: number;
@@ -64,8 +83,10 @@ export const DEFAULT_VENDOR_SETTINGS: VendorSettings = {
   autoAcceptOrders: false,
   kdsSoundEnabled: true,
   certifications: [],
+  certificationsReviewStatus: 'pending',
   allergenPolicyNotes: '',
   ingredientSourcingNotes: '',
+  facilityAllergensHandled: [],
   offeredContractDurations: [...CONTRACT_DURATIONS_MONTHS],
   minimumOrderCents: 2000,
   deliveryFeeCents: DELIVERY_FEE_CENTS,
@@ -93,6 +114,8 @@ export const mergeVendorSettings = (
     ? partial.offeredContractDurations
     : DEFAULT_VENDOR_SETTINGS.offeredContractDurations,
   certifications: partial?.certifications ?? DEFAULT_VENDOR_SETTINGS.certifications,
+  facilityAllergensHandled:
+    partial?.facilityAllergensHandled ?? DEFAULT_VENDOR_SETTINGS.facilityAllergensHandled,
 });
 
 export const formatCentsAsDollars = (cents: number): string =>

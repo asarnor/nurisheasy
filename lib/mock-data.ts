@@ -33,6 +33,7 @@ export interface MockOrganization {
     criticalAllergens: string[];
     preferences: string[];
     taxExempt: boolean;
+    blockFacilityCrossContact?: boolean;
   };
   address?: {
     street: string;
@@ -51,6 +52,13 @@ export interface MockOrganization {
   onboardingCompletedAt?: string;
 }
 
+export interface MockAllergenAttestation {
+  confirmedTags: string[];
+  confirmedAbsentTags: string[];
+  attestedBy: string;
+  attestedAt: string;
+}
+
 export interface MockMenuItem {
   id: string;
   vendorId: string;
@@ -67,6 +75,10 @@ export interface MockMenuItem {
   stockQuantity?: number | null;
   servingSizeOz?: number | null;
   maxPortionsPerOrder?: number | null;
+  lastVerifiedAt?: string;
+  allergenAttestation?: MockAllergenAttestation;
+  lastAttestedAt?: string;
+  lastAttestedBy?: string;
 }
 
 export interface MockOrderItem {
@@ -74,6 +86,8 @@ export interface MockOrderItem {
   name: string;
   quantity: number;
   price: number;
+  allergenTags?: string[];
+  allergenAttestedAt?: string;
 }
 
 export interface MockSubOrder {
@@ -244,12 +258,22 @@ const createMockStore = (): MockStore => {
         orderCutoffTime: '19:00',
         defaultPrepTimeMinutes: 50,
         certifications: ['HALAL'],
+        certificationsReviewStatus: 'pending',
+        allergenPolicyNotes:
+          'Shared kitchen — sesame, tree nut, and wheat are handled on premises daily.',
+        facilityAllergensHandled: ['SESAME', 'TREE_NUT', 'WHEAT'],
         minimumOrderCents: 3000,
         offeredContractDurations: [6, 9, 12],
         acceptingNewContracts: true,
       },
     },
   ];
+
+  vendors[0].vendorSettings = {
+    ...vendors[0].vendorSettings,
+    certificationsReviewStatus: 'approved',
+    facilityAllergensHandled: ['DAIRY', 'EGG', 'WHEAT', 'GLUTEN'],
+  };
 
   const consumer: MockOrganization = {
     id: 'consumer_tommys',
@@ -516,6 +540,21 @@ const createMockStore = (): MockStore => {
       servingSizeOz: 10,
     },
   ];
+
+  // Seed fresh verification + attestation timestamps on all mock menu items
+  const attestationIso = new Date(now - 1000 * 60 * 60 * 2).toISOString();
+  menuItems.forEach((item) => {
+    item.lastVerifiedAt = item.lastVerifiedAt || attestationIso;
+    item.allergenAttestation =
+      item.allergenAttestation || {
+        confirmedTags: [...item.allergenTags],
+        confirmedAbsentTags: [],
+        attestedBy: 'mock-vendor',
+        attestedAt: attestationIso,
+      };
+    item.lastAttestedAt = item.lastAttestedAt || attestationIso;
+    item.lastAttestedBy = item.lastAttestedBy || 'mock-vendor';
+  });
 
   // Breakfast order — Tommy's orders 20 servings for morning
   const breakfastOrder = withTotal([
@@ -791,6 +830,8 @@ export const createMockMenuItem = (vendorId: string, payload: Partial<MockMenuIt
   const vendor = store.organizations.vendors.find((item) => item.id === vendorId);
   if (!vendor) return null;
 
+  const nowIso = new Date().toISOString();
+
   const draft: MockMenuItem = {
     id: `menu_mock_${Date.now()}`,
     vendorId: vendor.id,
@@ -804,6 +845,10 @@ export const createMockMenuItem = (vendorId: string, payload: Partial<MockMenuIt
     imageUrl: payload.imageUrl,
     mealCategories: normalizeMealCategoriesInput(payload.mealCategories),
     category: payload.category,
+    lastVerifiedAt: payload.lastVerifiedAt || nowIso,
+    allergenAttestation: payload.allergenAttestation,
+    lastAttestedAt: payload.lastAttestedAt || payload.allergenAttestation?.attestedAt,
+    lastAttestedBy: payload.lastAttestedBy || payload.allergenAttestation?.attestedBy,
   };
 
   const newItem = assignGeneratedImageIfNeeded(draft, draft.id);
@@ -949,6 +994,11 @@ export const createMockOrder = (
       name: menuItem.name,
       quantity,
       price: menuItem.price,
+      allergenTags: [...(menuItem.allergenTags || [])],
+      allergenAttestedAt:
+        menuItem.lastAttestedAt ||
+        menuItem.allergenAttestation?.attestedAt ||
+        menuItem.lastVerifiedAt,
     });
     vendorGroups.set(menuItem.vendorId, group);
   });
