@@ -177,8 +177,13 @@ export const parseMarketplaceVendorFilters = (
   searchParams: URLSearchParams
 ): MarketplaceVendorFilters => {
   const meal = searchParams.get('meal');
-  const contractMonths = Number(searchParams.get('contractMonths'));
-  const preparationDay = Number(searchParams.get('preparationDay'));
+  const contractMonthsRaw = searchParams.get('contractMonths');
+  const preparationDayRaw = searchParams.get('preparationDay');
+  const contractMonths = contractMonthsRaw === null ? NaN : Number(contractMonthsRaw);
+  const preparationDay =
+    preparationDayRaw === null || preparationDayRaw === ''
+      ? NaN
+      : Number(preparationDayRaw);
 
   return {
     q: searchParams.get('q')?.trim() || undefined,
