@@ -2,6 +2,19 @@ import mongoose, { Schema, Document, Model } from 'mongoose';
 import Organization from './organization.model';
 import MenuItem from './menu.model';
 
+export type SubOrderDeclineReason =
+  | 'out_of_stock'
+  | 'closed'
+  | 'capacity'
+  | 'other'
+  | 'auto_expired';
+
+export interface IAcceptanceEscalation {
+  smsSentAt?: Date;
+  voiceSentAt?: Date;
+  expiredAt?: Date;
+}
+
 export interface ISubOrder {
   vendorId: mongoose.Types.ObjectId;
   status: 'PENDING' | 'ACCEPTED' | 'PREPARING' | 'READY' | 'DELIVERED' | 'REFUNDED' | 'CANCELLED';
@@ -14,6 +27,11 @@ export interface ISubOrder {
   vendorTotal: number; // Total for this vendor in cents
   acceptedAt?: Date;
   estimatedReadyAt?: Date;
+  autoAccepted?: boolean;
+  declineReason?: SubOrderDeclineReason;
+  declineNote?: string;
+  declinedAt?: Date;
+  acceptanceEscalation?: IAcceptanceEscalation;
 }
 
 export interface IOrder extends Document {
@@ -73,6 +91,18 @@ const SubOrderSchema: Schema = new Schema(
     },
     acceptedAt: Date,
     estimatedReadyAt: Date,
+    autoAccepted: { type: Boolean, default: false },
+    declineReason: {
+      type: String,
+      enum: ['out_of_stock', 'closed', 'capacity', 'other', 'auto_expired'],
+    },
+    declineNote: String,
+    declinedAt: Date,
+    acceptanceEscalation: {
+      smsSentAt: Date,
+      voiceSentAt: Date,
+      expiredAt: Date,
+    },
   },
   { _id: false }
 );

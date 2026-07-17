@@ -23,6 +23,12 @@ import {
   validateInventory,
   type RuleViolation,
 } from '@/lib/platform-rules';
+import {
+  allActiveSubOrdersAccepted,
+  captureAndTransferForOrder,
+  recomputeOrderStatus,
+  shouldAutoAcceptSubOrder,
+} from '@/lib/order-lifecycle';
 
 const mealCategorySchema = z.enum(['breakfast', 'lunch', 'dinner']);
 
@@ -220,7 +226,8 @@ export async function POST(request: NextRequest) {
 
       // Group items by vendor
       const vendorGroups = new Map<string, typeof validatedData.items>();
-      
+      const vendorById = new Map<string, any>();
+
       for (const item of validatedData.items) {
         const menuItem = menuItems.find((mi) => mi._id.toString() === item.menuItemId);
         if (!menuItem) continue;
@@ -230,15 +237,38 @@ export async function POST(request: NextRequest) {
           vendorGroups.set(vendorId, []);
         }
         vendorGroups.get(vendorId)!.push(item);
+        vendorById.set(vendorId, menuItem.vendorId);
       }
 
-      // Calculate totals and create sub-orders
-      const subOrders = [];
+      // Contract-like orders auto-accept (issue #6). Also honored:
+      // vendorSettings.autoAcceptOrders on a per-vendor basis.
+      const isContractLike = Boolean(validatedData.contract);
+      const nowDate = new Date();
+
+      // Calculate totals and create sub-orders (with per-vendor auto-accept)
+      const subOrders: Array<{
+        vendorId: string;
+        status: 'PENDING' | 'ACCEPTED';
+        items: Array<{
+          menuItemId: any;
+          name: string;
+          quantity: number;
+          price: number;
+        }>;
+        vendorTotal: number;
+        acceptedAt?: Date;
+        autoAccepted?: boolean;
+      }> = [];
       let totalAmount = 0;
 
       for (const [vendorId, items] of vendorGroups) {
         let vendorTotal = 0;
-        const subOrderItems = [];
+        const subOrderItems: Array<{
+          menuItemId: any;
+          name: string;
+          quantity: number;
+          price: number;
+        }> = [];
 
         for (const item of items) {
           const menuItem = menuItems.find((mi) => mi._id.toString() === item.menuItemId);
@@ -255,11 +285,18 @@ export async function POST(request: NextRequest) {
           });
         }
 
+        const vendor = vendorById.get(vendorId) as any;
+        const autoAccept = shouldAutoAcceptSubOrder(
+          { contractDurationMonths: isContractLike ? 3 : undefined },
+          vendor?.vendorSettings?.autoAcceptOrders
+        );
+
         subOrders.push({
           vendorId,
-          status: 'PENDING',
+          status: autoAccept ? 'ACCEPTED' : 'PENDING',
           items: subOrderItems,
           vendorTotal,
+          ...(autoAccept ? { acceptedAt: nowDate, autoAccepted: true } : {}),
         });
 
         totalAmount += vendorTotal;
@@ -331,6 +368,26 @@ export async function POST(request: NextRequest) {
 
       await order.save();
 
+      for (const sub of order.subOrders) {
+        if (sub.status === 'PENDING') {
+          console.log(
+            `[notify:new-order] vendor=${sub.vendorId} order=${order._id} — push/email would fire`
+          );
+        }
+      }
+
+      // If every non-cancelled sub-order was auto-accepted at creation, capture
+      // immediately (issue #6).
+      if (allActiveSubOrdersAccepted(order.subOrders)) {
+        try {
+          await captureAndTransferForOrder(order);
+        } catch (error) {
+          console.error('Auto-accept capture/transfer failed:', error);
+        }
+        recomputeOrderStatus(order);
+        await order.save();
+      }
+
       // Decrement stock quantities for items that track inventory
       if (platformRules.inventory.trackStock) {
         for (const reqItem of validatedData.items) {
@@ -397,7 +454,23 @@ export async function GET(request: NextRequest) {
         orders = orders.filter((order) => order.status === status);
       }
 
-      return NextResponse.json({ orders: orders.slice(0, limit) });
+      // KDS extras (issue #6): countdown timeout + sound preference
+      const store = getMockStore();
+      const activeVendor =
+        role === 'vendor'
+          ? store.organizations.vendors.find(
+              (v) => v.id === (vendorId || store.organizations.vendors[0].id)
+            )
+          : null;
+      const kdsSoundEnabled = activeVendor?.vendorSettings?.kdsSoundEnabled ?? true;
+      const vendorAcceptanceTimeoutMinutes =
+        DEFAULT_RULES.deliveryTiming.vendorAcceptanceTimeoutMinutes;
+
+      return NextResponse.json({
+        orders: orders.slice(0, limit),
+        vendor: role === 'vendor' ? { kdsSoundEnabled } : undefined,
+        platformRules: { vendorAcceptanceTimeoutMinutes },
+      });
     }
 
     await connectDB();
@@ -433,7 +506,20 @@ export async function GET(request: NextRequest) {
       .populate('consumerId', 'name')
       .populate('subOrders.vendorId', 'name');
 
-    return NextResponse.json({ orders });
+    // KDS UX metadata (sound + countdown timeout) — issue #6.
+    const platformRules = await getActivePlatformRules();
+    const vendorAcceptanceTimeoutMinutes =
+      platformRules.deliveryTiming?.vendorAcceptanceTimeoutMinutes ?? 30;
+    const kdsSoundEnabled =
+      organization.type === 'vendor'
+        ? organization.vendorSettings?.kdsSoundEnabled ?? true
+        : undefined;
+
+    return NextResponse.json({
+      orders,
+      vendor: kdsSoundEnabled !== undefined ? { kdsSoundEnabled } : undefined,
+      platformRules: { vendorAcceptanceTimeoutMinutes },
+    });
   } catch (error) {
     console.error('Error fetching orders:', error);
     return NextResponse.json(

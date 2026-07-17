@@ -76,6 +76,19 @@ export interface MockOrderItem {
   price: number;
 }
 
+export type MockSubOrderDeclineReason =
+  | 'out_of_stock'
+  | 'closed'
+  | 'capacity'
+  | 'other'
+  | 'auto_expired';
+
+export interface MockAcceptanceEscalation {
+  smsSentAt?: string;
+  voiceSentAt?: string;
+  expiredAt?: string;
+}
+
 export interface MockSubOrder {
   vendorId: string;
   vendorName: string;
@@ -91,6 +104,11 @@ export interface MockSubOrder {
   vendorTotal: number;
   acceptedAt?: string;
   estimatedReadyAt?: string;
+  autoAccepted?: boolean;
+  declineReason?: MockSubOrderDeclineReason;
+  declineNote?: string;
+  declinedAt?: string;
+  acceptanceEscalation?: MockAcceptanceEscalation;
 }
 
 export interface MockOrder {
@@ -976,9 +994,27 @@ export const createMockOrder = (
       ? contract.mealPeriods
       : DEFAULT_CONTRACT_OPTIONS.mealPeriods,
   };
+  const isContractLike = Boolean(contract && Object.keys(contract).length > 0);
   const deliveryFeeCents =
     contractOptions.fulfillmentMethod === 'delivery' ? DELIVERY_FEE_CENTS : 0;
   totalAmount += deliveryFeeCents;
+
+  const nowIso = new Date().toISOString();
+  subOrders.forEach((sub) => {
+    const vendor = store.organizations.vendors.find(
+      (entry) => entry.id === sub.vendorId
+    );
+    const autoAccept =
+      isContractLike || vendor?.vendorSettings?.autoAcceptOrders === true;
+
+    if (autoAccept) {
+      sub.status = 'ACCEPTED';
+      sub.acceptedAt = nowIso;
+      sub.autoAccepted = true;
+    }
+  });
+
+  const anyPending = subOrders.some((sub) => sub.status === 'PENDING');
 
   const contractStartDate = new Date();
   const contractEndDate = calculateContractEndDate(
@@ -988,11 +1024,11 @@ export const createMockOrder = (
 
   const order: MockOrder = {
     _id: `order_mock_${Date.now()}`,
-    status: 'PROCESSING',
+    status: anyPending ? 'PROCESSING' : 'CONFIRMED',
     paymentIntentId: `pi_mock_${Date.now()}`,
     totalAmount,
     platformFee: Math.round(totalAmount * 0.1),
-    createdAt: new Date().toISOString(),
+    createdAt: nowIso,
     consumerId: {
       _id: store.organizations.consumer.id,
       name: store.organizations.consumer.name,
@@ -1012,22 +1048,24 @@ export const createMockOrder = (
 };
 
 const updateOrderStatusFromSubOrders = (order: MockOrder) => {
-  if (order.subOrders.every((subOrder) => subOrder.status === 'DELIVERED')) {
+  const subs = order.subOrders;
+
+  if (subs.every((subOrder) => subOrder.status === 'DELIVERED')) {
     order.status = 'FULFILLED';
     return;
   }
 
-  if (order.subOrders.some((subOrder) => subOrder.status === 'REFUNDED')) {
-    order.status = 'REFUNDED';
-    return;
-  }
-
-  if (order.subOrders.some((subOrder) => subOrder.status === 'CANCELLED')) {
+  if (subs.every((subOrder) => subOrder.status === 'CANCELLED')) {
     order.status = 'CANCELLED';
     return;
   }
 
-  if (order.subOrders.every((subOrder) => subOrder.status !== 'PENDING')) {
+  if (subs.every((subOrder) => subOrder.status === 'REFUNDED')) {
+    order.status = 'REFUNDED';
+    return;
+  }
+
+  if (subs.every((subOrder) => subOrder.status !== 'PENDING')) {
     order.status = 'CONFIRMED';
     return;
   }
@@ -1075,6 +1113,94 @@ export const updateMockSubOrderStatus = (
   }
 
   updateOrderStatusFromSubOrders(order);
+  return order;
+};
+
+export const declineMockSubOrder = (
+  orderId: string,
+  vendorId: string,
+  reason: MockSubOrderDeclineReason,
+  note?: string
+) => {
+  const store = getMockStore();
+  const order = store.orders.find((entry) => entry._id === orderId);
+  if (!order) return null;
+
+  const subOrder = order.subOrders.find((entry) => entry.vendorId === vendorId);
+  if (!subOrder) return null;
+
+  if (subOrder.status !== 'PENDING') {
+    return { error: `Cannot decline sub-order in status ${subOrder.status}` };
+  }
+
+  subOrder.status = 'CANCELLED';
+  subOrder.declineReason = reason;
+  subOrder.declineNote = note;
+  subOrder.declinedAt = new Date().toISOString();
+
+  updateOrderStatusFromSubOrders(order);
+  return order;
+};
+
+export const resolveMockPartialOrder = (
+  orderId: string,
+  action: 'proceed' | 'cancel_all'
+) => {
+  const store = getMockStore();
+  const order = store.orders.find((entry) => entry._id === orderId);
+  if (!order) return null;
+
+  if (action === 'cancel_all') {
+    order.subOrders.forEach((so) => {
+      if (so.status === 'PENDING' || so.status === 'ACCEPTED') {
+        so.status = 'CANCELLED';
+      }
+    });
+    order.status = 'CANCELLED';
+    return order;
+  }
+
+  const remainingPending = order.subOrders.some(
+    (so) => so.status === 'PENDING'
+  );
+  if (remainingPending) {
+    return {
+      error:
+        'Cannot proceed — some sub-orders are still pending vendor acceptance',
+    };
+  }
+
+  const hasAccepted = order.subOrders.some((so) => so.status === 'ACCEPTED');
+  if (!hasAccepted) {
+    order.status = 'CANCELLED';
+    return order;
+  }
+
+  updateOrderStatusFromSubOrders(order);
+  return order;
+};
+
+export const escalateMockSubOrder = (
+  orderId: string,
+  vendorId: string,
+  stage: 'sms' | 'voice' | 'expire'
+) => {
+  const store = getMockStore();
+  const order = store.orders.find((entry) => entry._id === orderId);
+  if (!order) return null;
+  const subOrder = order.subOrders.find((entry) => entry.vendorId === vendorId);
+  if (!subOrder) return null;
+  const now = new Date().toISOString();
+  subOrder.acceptanceEscalation = subOrder.acceptanceEscalation || {};
+  if (stage === 'sms') subOrder.acceptanceEscalation.smsSentAt = now;
+  if (stage === 'voice') subOrder.acceptanceEscalation.voiceSentAt = now;
+  if (stage === 'expire') {
+    subOrder.acceptanceEscalation.expiredAt = now;
+    subOrder.status = 'CANCELLED';
+    subOrder.declineReason = 'auto_expired';
+    subOrder.declinedAt = now;
+    updateOrderStatusFromSubOrders(order);
+  }
   return order;
 };
 
