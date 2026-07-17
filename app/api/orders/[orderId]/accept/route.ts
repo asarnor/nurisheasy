@@ -2,14 +2,19 @@ import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
 import Order from '@/lib/models/order.model';
 import { getCurrentOrganization } from '@/lib/utils/clerk';
-import { capturePaymentIntent, transferToVendor } from '@/lib/utils/stripe';
-import Organization from '@/lib/models/organization.model';
 import { shouldUseMockData, getDebugRoleFromRequest } from '@/lib/utils/debug';
 import { acceptMockSubOrder, getMockVendorId } from '@/lib/mock-data';
+import {
+  allActiveSubOrdersAccepted,
+  captureAndTransferForOrder,
+  recomputeOrderStatus,
+} from '@/lib/order-lifecycle';
 
 /**
  * POST /api/orders/[orderId]/accept
- * Vendor accepts a sub-order
+ * Vendor accepts a sub-order. When every non-cancelled sub-order is ACCEPTED,
+ * we capture the PaymentIntent and transfer each vendor's cut via the shared
+ * `captureAndTransferForOrder` helper (issue #6).
  */
 export async function POST(
   request: NextRequest,
@@ -42,9 +47,9 @@ export async function POST(
     }
 
     await connectDB();
-    
+
     const organization = await getCurrentOrganization();
-    
+
     if (!organization || organization.type !== 'vendor') {
       return NextResponse.json(
         { error: 'Vendor organization required' },
@@ -53,7 +58,7 @@ export async function POST(
     }
 
     const order = await Order.findById(params.orderId);
-    
+
     if (!order) {
       return NextResponse.json(
         { error: 'Order not found' },
@@ -61,7 +66,6 @@ export async function POST(
       );
     }
 
-    // Find the sub-order for this vendor
     const subOrderIndex = order.subOrders.findIndex(
       (so) => so.vendorId.toString() === organization._id.toString()
     );
@@ -82,36 +86,18 @@ export async function POST(
       );
     }
 
-    // Update sub-order status
     order.subOrders[subOrderIndex].status = 'ACCEPTED';
     order.subOrders[subOrderIndex].acceptedAt = new Date();
-    
-    // If all sub-orders are accepted, capture payment and update order status
-    const allAccepted = order.subOrders.every((so) => so.status === 'ACCEPTED');
-    
-    if (allAccepted) {
-      // Capture payment intent
-      await capturePaymentIntent(order.paymentIntentId);
-      
-      // Transfer funds to each vendor
-      for (const so of order.subOrders) {
-        const vendor = await Organization.findById(so.vendorId);
-        if (vendor?.stripeAccountId) {
-          await transferToVendor(
-            so.vendorTotal,
-            vendor.stripeAccountId,
-            order.paymentIntentId,
-            {
-              orderId: order._id.toString(),
-              subOrderId: subOrderIndex.toString(),
-            }
-          );
-        }
+
+    if (allActiveSubOrdersAccepted(order.subOrders)) {
+      try {
+        await captureAndTransferForOrder(order);
+      } catch (error) {
+        console.error('Payment capture/transfer failed on accept:', error);
       }
-      
-      order.status = 'CONFIRMED';
     }
 
+    recomputeOrderStatus(order);
     await order.save();
 
     return NextResponse.json({

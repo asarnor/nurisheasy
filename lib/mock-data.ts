@@ -76,6 +76,19 @@ export interface MockOrderItem {
   price: number;
 }
 
+export type MockSubOrderDeclineReason =
+  | 'out_of_stock'
+  | 'closed'
+  | 'capacity'
+  | 'other'
+  | 'auto_expired';
+
+export interface MockAcceptanceEscalation {
+  smsSentAt?: string;
+  voiceSentAt?: string;
+  expiredAt?: string;
+}
+
 export interface MockSubOrder {
   vendorId: string;
   vendorName: string;
@@ -91,6 +104,11 @@ export interface MockSubOrder {
   vendorTotal: number;
   acceptedAt?: string;
   estimatedReadyAt?: string;
+  autoAccepted?: boolean;
+  declineReason?: MockSubOrderDeclineReason;
+  declineNote?: string;
+  declinedAt?: string;
+  acceptanceEscalation?: MockAcceptanceEscalation;
 }
 
 export interface MockContract {
@@ -1067,18 +1085,22 @@ export const createMockOrder = (
   const deliveryFeeCents =
     contractOptions.fulfillmentMethod === 'delivery' ? DELIVERY_FEE_CENTS : 0;
 
+  const nowIso = new Date().toISOString();
   const createdOrders: MockOrder[] = [];
 
   vendorGroups.forEach((groupItems, vendorId) => {
     const vendor = store.organizations.vendors.find((entry) => entry.id === vendorId);
     const vendorTotal = sumItems(groupItems);
+    const autoAccept =
+      isContractLike || vendor?.vendorSettings?.autoAcceptOrders === true;
 
     const subOrder: MockSubOrder = {
       vendorId,
       vendorName: vendor?.name || 'Vendor',
-      status: 'PENDING',
+      status: autoAccept ? 'ACCEPTED' : 'PENDING',
       items: groupItems,
       vendorTotal,
+      ...(autoAccept ? { acceptedAt: nowIso, autoAccepted: true } : {}),
     };
 
     const orderTotal = vendorTotal + deliveryFeeCents;
@@ -1137,22 +1159,24 @@ export const createMockOrder = (
 };
 
 const updateOrderStatusFromSubOrders = (order: MockOrder) => {
-  if (order.subOrders.every((subOrder) => subOrder.status === 'DELIVERED')) {
+  const subs = order.subOrders;
+
+  if (subs.every((subOrder) => subOrder.status === 'DELIVERED')) {
     order.status = 'FULFILLED';
     return;
   }
 
-  if (order.subOrders.some((subOrder) => subOrder.status === 'REFUNDED')) {
-    order.status = 'REFUNDED';
-    return;
-  }
-
-  if (order.subOrders.some((subOrder) => subOrder.status === 'CANCELLED')) {
+  if (subs.every((subOrder) => subOrder.status === 'CANCELLED')) {
     order.status = 'CANCELLED';
     return;
   }
 
-  if (order.subOrders.every((subOrder) => subOrder.status !== 'PENDING')) {
+  if (subs.every((subOrder) => subOrder.status === 'REFUNDED')) {
+    order.status = 'REFUNDED';
+    return;
+  }
+
+  if (subs.every((subOrder) => subOrder.status !== 'PENDING')) {
     order.status = 'CONFIRMED';
     return;
   }
@@ -1200,6 +1224,94 @@ export const updateMockSubOrderStatus = (
   }
 
   updateOrderStatusFromSubOrders(order);
+  return order;
+};
+
+export const declineMockSubOrder = (
+  orderId: string,
+  vendorId: string,
+  reason: MockSubOrderDeclineReason,
+  note?: string
+) => {
+  const store = getMockStore();
+  const order = store.orders.find((entry) => entry._id === orderId);
+  if (!order) return null;
+
+  const subOrder = order.subOrders.find((entry) => entry.vendorId === vendorId);
+  if (!subOrder) return null;
+
+  if (subOrder.status !== 'PENDING') {
+    return { error: `Cannot decline sub-order in status ${subOrder.status}` };
+  }
+
+  subOrder.status = 'CANCELLED';
+  subOrder.declineReason = reason;
+  subOrder.declineNote = note;
+  subOrder.declinedAt = new Date().toISOString();
+
+  updateOrderStatusFromSubOrders(order);
+  return order;
+};
+
+export const resolveMockPartialOrder = (
+  orderId: string,
+  action: 'proceed' | 'cancel_all'
+) => {
+  const store = getMockStore();
+  const order = store.orders.find((entry) => entry._id === orderId);
+  if (!order) return null;
+
+  if (action === 'cancel_all') {
+    order.subOrders.forEach((so) => {
+      if (so.status === 'PENDING' || so.status === 'ACCEPTED') {
+        so.status = 'CANCELLED';
+      }
+    });
+    order.status = 'CANCELLED';
+    return order;
+  }
+
+  const remainingPending = order.subOrders.some(
+    (so) => so.status === 'PENDING'
+  );
+  if (remainingPending) {
+    return {
+      error:
+        'Cannot proceed — some sub-orders are still pending vendor acceptance',
+    };
+  }
+
+  const hasAccepted = order.subOrders.some((so) => so.status === 'ACCEPTED');
+  if (!hasAccepted) {
+    order.status = 'CANCELLED';
+    return order;
+  }
+
+  updateOrderStatusFromSubOrders(order);
+  return order;
+};
+
+export const escalateMockSubOrder = (
+  orderId: string,
+  vendorId: string,
+  stage: 'sms' | 'voice' | 'expire'
+) => {
+  const store = getMockStore();
+  const order = store.orders.find((entry) => entry._id === orderId);
+  if (!order) return null;
+  const subOrder = order.subOrders.find((entry) => entry.vendorId === vendorId);
+  if (!subOrder) return null;
+  const now = new Date().toISOString();
+  subOrder.acceptanceEscalation = subOrder.acceptanceEscalation || {};
+  if (stage === 'sms') subOrder.acceptanceEscalation.smsSentAt = now;
+  if (stage === 'voice') subOrder.acceptanceEscalation.voiceSentAt = now;
+  if (stage === 'expire') {
+    subOrder.acceptanceEscalation.expiredAt = now;
+    subOrder.status = 'CANCELLED';
+    subOrder.declineReason = 'auto_expired';
+    subOrder.declinedAt = now;
+    updateOrderStatusFromSubOrders(order);
+  }
   return order;
 };
 

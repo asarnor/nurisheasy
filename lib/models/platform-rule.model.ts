@@ -79,7 +79,7 @@ const PlatformRuleSchema: Schema = new Schema(
         },
       },
       advanceOrderMinHours: { type: Number, default: 1, min: 0 },
-      vendorAcceptanceTimeoutMinutes: { type: Number, default: 15, min: 1 },
+      vendorAcceptanceTimeoutMinutes: { type: Number, default: 30, min: 1 },
       lateDeliveryThresholdMinutes: { type: Number, default: 15, min: 1 },
     },
     contractMinimums: {
