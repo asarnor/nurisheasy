@@ -9,19 +9,13 @@ import { ContractOrderSummary } from '@/components/orders/ContractOrderSummary';
 import { apiFetch } from '@/lib/utils/api';
 import { consumerPath } from '@/lib/utils/debug-client';
 import { getDaysUntilContractEnd } from '@/lib/contract-options';
+import { getOrderContractDetails, type OrderWithContract } from '@/lib/types';
 
-interface Order {
+interface Order extends OrderWithContract {
   _id: string;
   status: string;
   totalAmount: number;
   createdAt: string;
-  contractDurationMonths?: 3 | 6 | 9 | 12;
-  preparationDayOfWeek?: number;
-  mealPeriods?: ('breakfast' | 'lunch' | 'dinner')[];
-  fulfillmentMethod?: 'pickup' | 'delivery';
-  deliveryFeeCents?: number;
-  contractStartDate?: string;
-  contractEndDate?: string;
   consumerId?: { name?: string };
 }
 
@@ -46,9 +40,10 @@ export default function AccountSubscriptionPage() {
 
         if (ordersRes.ok) {
           const data = await ordersRes.json();
-          const contractual = (data.orders || []).filter(
-            (order: Order) => order.contractDurationMonths
-          );
+          const contractual = (data.orders || []).filter((order: Order) => {
+            const details = getOrderContractDetails(order);
+            return Boolean(details.contractDurationMonths || order.contractId);
+          });
           setOrders(contractual);
         }
       } catch (error) {
@@ -62,7 +57,8 @@ export default function AccountSubscriptionPage() {
   }, []);
 
   const activeContracts = orders.filter((order) => {
-    const days = getDaysUntilContractEnd(order.contractEndDate);
+    const details = getOrderContractDetails(order);
+    const days = getDaysUntilContractEnd(details.contractEndDate);
     return days === null || days >= 0;
   });
 
@@ -87,32 +83,35 @@ export default function AccountSubscriptionPage() {
         </Card>
       ) : (
         <div className="space-y-6">
-          {activeContracts.map((order) => (
-            <div key={order._id} className="space-y-3">
-              <div className="flex items-center justify-between">
-                <button
-                  type="button"
-                  onClick={() => router.push(consumerPath(`/orders/${order._id}`))}
-                  className="text-sm font-semibold text-emerald-700 hover:text-emerald-800"
-                >
-                  View order #{order._id.slice(-8)} →
-                </button>
-                <Badge variant="success">Active</Badge>
+          {activeContracts.map((order) => {
+            const contractDetails = getOrderContractDetails(order);
+            return (
+              <div key={order._id} className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <button
+                    type="button"
+                    onClick={() => router.push(consumerPath(`/orders/${order._id}`))}
+                    className="text-sm font-semibold text-emerald-700 hover:text-emerald-800"
+                  >
+                    View order #{order._id.slice(-8)} →
+                  </button>
+                  <Badge variant="success">Active</Badge>
+                </div>
+                <ContractOrderSummary
+                  order={{
+                    consumerName: order.consumerId?.name || facilityName,
+                    contractDurationMonths: contractDetails.contractDurationMonths,
+                    preparationDayOfWeek: contractDetails.preparationDayOfWeek,
+                    mealPeriods: contractDetails.mealPeriods,
+                    fulfillmentMethod: contractDetails.fulfillmentMethod,
+                    deliveryFeeCents: contractDetails.deliveryFeeCents,
+                    contractStartDate: contractDetails.contractStartDate ?? order.createdAt,
+                    contractEndDate: contractDetails.contractEndDate,
+                  }}
+                />
               </div>
-              <ContractOrderSummary
-                order={{
-                  consumerName: order.consumerId?.name || facilityName,
-                  contractDurationMonths: order.contractDurationMonths,
-                  preparationDayOfWeek: order.preparationDayOfWeek,
-                  mealPeriods: order.mealPeriods,
-                  fulfillmentMethod: order.fulfillmentMethod,
-                  deliveryFeeCents: order.deliveryFeeCents,
-                  contractStartDate: order.contractStartDate ?? order.createdAt,
-                  contractEndDate: order.contractEndDate,
-                }}
-              />
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </ConsumerAccountShell>

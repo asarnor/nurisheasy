@@ -9,8 +9,7 @@ import { ContractOrderSummary } from '@/components/orders/ContractOrderSummary';
 import { ConsumerShell } from '@/components/layout/ConsumerShell';
 import { apiFetch } from '@/lib/utils/api';
 import { consumerPath } from '@/lib/utils/debug-client';
-import type { FulfillmentMethod } from '@/lib/contract-options';
-import type { MealCategory } from '@/lib/meal-categories';
+import { getOrderContractDetails, type OrderWithContract } from '@/lib/types';
 
 interface SubOrder {
   vendorId: string | { _id?: string; name?: string };
@@ -26,21 +25,14 @@ interface SubOrder {
   estimatedReadyAt?: string;
 }
 
-interface Order {
+interface Order extends OrderWithContract {
   _id: string;
   status: string;
   totalAmount: number;
-  deliveryFeeCents?: number;
   subOrders: SubOrder[];
   createdAt: string;
   consumerId?: { _id?: string; name?: string };
   consumerName?: string;
-  contractDurationMonths?: 3 | 6 | 9 | 12;
-  preparationDayOfWeek?: number;
-  mealPeriods?: MealCategory[];
-  fulfillmentMethod?: FulfillmentMethod;
-  contractStartDate?: string;
-  contractEndDate?: string;
 }
 
 interface Review {
@@ -170,6 +162,8 @@ export default function OrderTrackingPage() {
     );
   }
 
+  const contractDetails = getOrderContractDetails(order);
+
   return (
     <ConsumerShell
       active="orders"
@@ -182,13 +176,13 @@ export default function OrderTrackingPage() {
         <ContractOrderSummary
           order={{
             consumerName: getConsumerName(order),
-            contractDurationMonths: order.contractDurationMonths,
-            preparationDayOfWeek: order.preparationDayOfWeek,
-            mealPeriods: order.mealPeriods,
-            fulfillmentMethod: order.fulfillmentMethod,
-            deliveryFeeCents: order.deliveryFeeCents,
-            contractStartDate: order.contractStartDate ?? order.createdAt,
-            contractEndDate: order.contractEndDate,
+            contractDurationMonths: contractDetails.contractDurationMonths,
+            preparationDayOfWeek: contractDetails.preparationDayOfWeek,
+            mealPeriods: contractDetails.mealPeriods,
+            fulfillmentMethod: contractDetails.fulfillmentMethod,
+            deliveryFeeCents: contractDetails.deliveryFeeCents,
+            contractStartDate: contractDetails.contractStartDate ?? order.createdAt,
+            contractEndDate: contractDetails.contractEndDate,
           }}
         />
 
@@ -263,7 +257,7 @@ export default function OrderTrackingPage() {
                     orderId={order._id}
                     vendorId={vendorId}
                     vendorName={getVendorName(subOrder)}
-                    fulfillmentMethod={order.fulfillmentMethod || 'pickup'}
+                    fulfillmentMethod={contractDetails.fulfillmentMethod || 'pickup'}
                     existingRating={existingReview?.rating}
                     existingComment={existingReview?.comment}
                     onSubmitted={fetchOrder}

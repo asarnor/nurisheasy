@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import connectDB from '@/lib/mongodb';
 import Order from '@/lib/models/order.model';
+import Contract from '@/lib/models/contract.model';
 import MenuItem from '@/lib/models/menu.model';
 import { getCurrentOrganization } from '@/lib/utils/clerk';
 import { acquireOrderLock, releaseOrderLock } from '@/lib/redis';
@@ -60,17 +61,14 @@ export async function POST(request: NextRequest) {
       const body = await request.json();
       const validatedData = orderSchema.parse(body);
 
-      // Validate against platform rules in mock mode
       const rules = DEFAULT_RULES;
       const violations: RuleViolation[] = [];
 
-      // Delivery timing checks
       violations.push(...validateDeliveryTiming(
         rules.deliveryTiming,
         validatedData.requestedDeliveryTime ? new Date(validatedData.requestedDeliveryTime) : undefined,
       ));
 
-      // Portion protocol checks
       const store = getMockStore();
       const itemsWithNames = validatedData.items.map((item) => {
         const menuItem = store.menuItems.find((m) => m.id === item.menuItemId);
@@ -97,7 +95,6 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      // Validate order minimums after totals are calculated
       const vendorSubTotals = order.subOrders.map((sub) => ({
         vendorId: sub.vendorId,
         vendorName: sub.vendorName,
@@ -118,22 +115,17 @@ export async function POST(request: NextRequest) {
         totalAmount: order.totalAmount,
         platformFee: order.platformFee,
         deliveryFeeCents: order.deliveryFeeCents,
-        contract: {
-          contractDurationMonths: order.contractDurationMonths,
-          preparationDayOfWeek: order.preparationDayOfWeek,
-          mealPeriods: order.mealPeriods,
-          fulfillmentMethod: order.fulfillmentMethod,
-          contractStartDate: order.contractStartDate,
-          contractEndDate: order.contractEndDate,
-        },
+        contractId: order.contractId,
+        contract: order.contract,
+        deliveryDetails: order.deliveryDetails,
         subOrders: order.subOrders,
       });
     }
 
     await connectDB();
-    
+
     const organization = await getCurrentOrganization();
-    
+
     if (!organization || organization.type !== 'consumer') {
       return NextResponse.json(
         { error: 'Consumer organization required' },
@@ -144,20 +136,17 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const validatedData = orderSchema.parse(body);
 
-    // Load platform rules for validation
     const platformRules = await getActivePlatformRules();
     const allViolations: RuleViolation[] = [];
 
-    // Validate delivery timing
     allViolations.push(...validateDeliveryTiming(
       platformRules.deliveryTiming,
       validatedData.requestedDeliveryTime ? new Date(validatedData.requestedDeliveryTime) : undefined,
     ));
 
-    // Validate portion protocols (names resolved after menu lookup below)
     const itemsForPortionCheck = validatedData.items.map((item) => ({
       menuItemId: item.menuItemId,
-      name: item.menuItemId, // placeholder — replaced after menu lookup
+      name: item.menuItemId,
       quantity: item.quantity,
     }));
     allViolations.push(...validatePortionProtocols(
@@ -173,7 +162,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Acquire lock to prevent double-ordering
     const lockAcquired = await acquireOrderLock(organization._id.toString(), 30);
     if (!lockAcquired) {
       return NextResponse.json(
@@ -183,7 +171,6 @@ export async function POST(request: NextRequest) {
     }
 
     try {
-      // Fetch menu items and group by vendor
       const menuItemIds = validatedData.items.map((item) => item.menuItemId);
       const menuItems = await MenuItem.find({
         _id: { $in: menuItemIds },
@@ -194,7 +181,6 @@ export async function POST(request: NextRequest) {
         throw new Error('Some menu items are not available');
       }
 
-      // Validate inventory for each item
       const inventoryViolations: RuleViolation[] = [];
       for (const reqItem of validatedData.items) {
         const menuItem = menuItems.find((mi) => mi._id.toString() === reqItem.menuItemId);
@@ -218,27 +204,53 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      // Group items by vendor
       const vendorGroups = new Map<string, typeof validatedData.items>();
-      
+      const vendorById = new Map<string, any>();
+
       for (const item of validatedData.items) {
         const menuItem = menuItems.find((mi) => mi._id.toString() === item.menuItemId);
         if (!menuItem) continue;
-        
+
         const vendorId = menuItem.vendorId._id.toString();
         if (!vendorGroups.has(vendorId)) {
           vendorGroups.set(vendorId, []);
         }
         vendorGroups.get(vendorId)!.push(item);
+        vendorById.set(vendorId, menuItem.vendorId);
       }
 
-      // Calculate totals and create sub-orders
-      const subOrders = [];
-      let totalAmount = 0;
+      const isContractLike = Boolean(validatedData.contract);
+
+      // Build per-vendor sub-order payloads. When a contract is provided we
+      // split into one Order per vendor below (Order = one delivery from one
+      // Contract). Without a contract we keep a single multi-vendor Order.
+      type VendorPayload = {
+        vendorId: string;
+        vendorName: string;
+        vendorTotal: number;
+        subOrder: {
+          vendorId: string;
+          status: 'PENDING';
+          items: Array<{
+            menuItemId: any;
+            name: string;
+            quantity: number;
+            price: number;
+          }>;
+          vendorTotal: number;
+        };
+      };
+      const vendorPayloads: VendorPayload[] = [];
+      let combinedTotal = 0;
 
       for (const [vendorId, items] of vendorGroups) {
         let vendorTotal = 0;
-        const subOrderItems = [];
+        const subOrderItems: Array<{
+          menuItemId: any;
+          name: string;
+          quantity: number;
+          price: number;
+        }> = [];
 
         for (const item of items) {
           const menuItem = menuItems.find((mi) => mi._id.toString() === item.menuItemId);
@@ -255,28 +267,31 @@ export async function POST(request: NextRequest) {
           });
         }
 
-        subOrders.push({
+        const vendor = vendorById.get(vendorId) as any;
+
+        vendorPayloads.push({
           vendorId,
-          status: 'PENDING',
-          items: subOrderItems,
+          vendorName: vendor?.name || 'Vendor',
           vendorTotal,
+          subOrder: {
+            vendorId,
+            status: 'PENDING',
+            items: subOrderItems,
+            vendorTotal,
+          },
         });
 
-        totalAmount += vendorTotal;
+        combinedTotal += vendorTotal;
       }
 
-      // Validate order and vendor minimums
-      const vendorSubTotals = subOrders.map((sub) => {
-        const vendor = menuItems.find((mi) => mi.vendorId._id.toString() === sub.vendorId)?.vendorId as any;
-        return {
-          vendorId: sub.vendorId,
-          vendorName: vendor?.name || 'Vendor',
-          total: sub.vendorTotal,
-        };
-      });
+      const vendorSubTotals = vendorPayloads.map((v) => ({
+        vendorId: v.vendorId,
+        vendorName: v.vendorName,
+        total: v.vendorTotal,
+      }));
       const minimumViolations = validateOrderMinimums(
         platformRules.contractMinimums,
-        totalAmount,
+        combinedTotal,
         vendorSubTotals,
       );
       if (minimumViolations.length > 0) {
@@ -287,7 +302,6 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      // Use configurable platform fee instead of hardcoded 10%
       const feePercent = platformRules.platformFeePercent ?? 10;
       const contractOptions: OrderContractOptions = {
         ...DEFAULT_CONTRACT_OPTIONS,
@@ -298,40 +312,117 @@ export async function POST(request: NextRequest) {
       };
       const deliveryFeeCents =
         contractOptions.fulfillmentMethod === 'delivery' ? DELIVERY_FEE_CENTS : 0;
-      totalAmount += deliveryFeeCents;
-      const platformFee = Math.round(totalAmount * (feePercent / 100));
       const contractStartDate = new Date();
       const contractEndDate = calculateContractEndDate(
         contractStartDate,
         contractOptions.contractDurationMonths
       );
 
-      // Create payment intent
-      const paymentIntent = await createPaymentIntent(totalAmount, {
-        consumerId: organization._id.toString(),
-        orderType: 'multi_vendor',
-      });
+      const created: Array<{
+        order: any;
+        paymentIntent: any;
+        contract?: any;
+      }> = [];
 
-      // Create order (safety middleware will validate)
-      const order = new Order({
-        consumerId: organization._id,
-        status: 'PROCESSING',
-        paymentIntentId: paymentIntent.id,
-        totalAmount,
-        platformFee,
-        subOrders,
-        contractDurationMonths: contractOptions.contractDurationMonths,
-        preparationDayOfWeek: contractOptions.preparationDayOfWeek,
-        mealPeriods: contractOptions.mealPeriods,
-        fulfillmentMethod: contractOptions.fulfillmentMethod,
-        deliveryFeeCents,
-        contractStartDate,
-        contractEndDate,
-      });
+      if (isContractLike) {
+        // One Contract + one Order per vendor. Each Order gets its own PaymentIntent.
+        for (const payload of vendorPayloads) {
+          const vendor = vendorById.get(payload.vendorId) as any;
+          const vendorMinimumOrderCents =
+            vendor?.vendorSettings?.minimumOrderCents ??
+            platformRules.contractMinimums.minimumVendorSubOrderCents ??
+            0;
 
-      await order.save();
+          // Reuse an existing ACTIVE contract if terms match; else create one.
+          let contract = await Contract.findOne({
+            consumerId: organization._id,
+            vendorId: payload.vendorId,
+            status: 'ACTIVE',
+            durationMonths: contractOptions.contractDurationMonths,
+            preparationDayOfWeek: contractOptions.preparationDayOfWeek,
+            fulfillmentMethod: contractOptions.fulfillmentMethod,
+          });
 
-      // Decrement stock quantities for items that track inventory
+          if (!contract) {
+            contract = await Contract.create({
+              consumerId: organization._id,
+              vendorId: payload.vendorId,
+              durationMonths: contractOptions.contractDurationMonths,
+              startDate: contractStartDate,
+              endDate: contractEndDate,
+              preparationDayOfWeek: contractOptions.preparationDayOfWeek,
+              mealPeriods: contractOptions.mealPeriods,
+              fulfillmentMethod: contractOptions.fulfillmentMethod,
+              pricingTerms: {
+                platformFeePercent: feePercent,
+                minimumOrderCents: vendorMinimumOrderCents,
+                contractFeeCents: 0,
+              },
+              status: 'ACTIVE',
+              items: payload.subOrder.items.map((item) => ({
+                menuItemId: item.menuItemId,
+                name: item.name,
+                quantity: item.quantity,
+                price: item.price,
+              })),
+              lastGeneratedPrepDate: contractStartDate,
+            });
+          }
+
+          const orderTotal = payload.vendorTotal + deliveryFeeCents;
+          const orderPlatformFee = Math.round(orderTotal * (feePercent / 100));
+
+          const paymentIntent = await createPaymentIntent(orderTotal, {
+            consumerId: organization._id.toString(),
+            contractId: contract._id.toString(),
+            vendorId: payload.vendorId,
+            orderType: 'contract_delivery',
+          });
+
+          const order = new Order({
+            consumerId: organization._id,
+            contractId: contract._id,
+            status: 'PROCESSING',
+            paymentIntentId: paymentIntent.id,
+            totalAmount: orderTotal,
+            platformFee: orderPlatformFee,
+            subOrders: [payload.subOrder],
+            deliveryFeeCents,
+          });
+
+          await order.save();
+
+          created.push({ order, paymentIntent, contract });
+        }
+      } else {
+        // One-off order — keep the multi-vendor Order shape.
+        const totalAmount = combinedTotal + deliveryFeeCents;
+        const platformFee = Math.round(totalAmount * (feePercent / 100));
+        const paymentIntent = await createPaymentIntent(totalAmount, {
+          consumerId: organization._id.toString(),
+          orderType: 'multi_vendor',
+        });
+
+        const order = new Order({
+          consumerId: organization._id,
+          status: 'PROCESSING',
+          paymentIntentId: paymentIntent.id,
+          totalAmount,
+          platformFee,
+          subOrders: vendorPayloads.map((v) => v.subOrder),
+          deliveryFeeCents,
+          deliveryDetails: {
+            preparationDayOfWeek: contractOptions.preparationDayOfWeek,
+            mealPeriods: contractOptions.mealPeriods,
+            fulfillmentMethod: contractOptions.fulfillmentMethod,
+          },
+        });
+
+        await order.save();
+
+        created.push({ order, paymentIntent });
+      }
+
       if (platformRules.inventory.trackStock) {
         for (const reqItem of validatedData.items) {
           await MenuItem.updateOne(
@@ -341,21 +432,58 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      const serializeContract = (contract: any) =>
+        contract
+          ? {
+              _id: contract._id,
+              consumerId: contract.consumerId,
+              vendorId: contract.vendorId,
+              durationMonths: contract.durationMonths,
+              startDate: contract.startDate,
+              endDate: contract.endDate,
+              preparationDayOfWeek: contract.preparationDayOfWeek,
+              mealPeriods: contract.mealPeriods,
+              fulfillmentMethod: contract.fulfillmentMethod,
+              pricingTerms: contract.pricingTerms,
+              status: contract.status,
+            }
+          : undefined;
+
+      // Preserve legacy single-order response shape when there is one Order.
+      if (created.length === 1) {
+        const { order, paymentIntent, contract } = created[0];
+        return NextResponse.json({
+          orderId: order._id,
+          paymentIntentId: paymentIntent.id,
+          clientSecret: paymentIntent.client_secret,
+          totalAmount: order.totalAmount,
+          platformFee: order.platformFee,
+          subOrders: order.subOrders,
+          status: order.status,
+          contractId: contract?._id,
+          contract: serializeContract(contract),
+        });
+      }
+
       return NextResponse.json({
-        orderId: order._id,
-        paymentIntentId: paymentIntent.id,
-        clientSecret: paymentIntent.client_secret,
-        totalAmount,
-        platformFee,
-        subOrders: order.subOrders,
+        orders: created.map(({ order, paymentIntent, contract }) => ({
+          orderId: order._id,
+          paymentIntentId: paymentIntent.id,
+          clientSecret: paymentIntent.client_secret,
+          totalAmount: order.totalAmount,
+          platformFee: order.platformFee,
+          subOrders: order.subOrders,
+          status: order.status,
+          contractId: contract?._id,
+          contract: serializeContract(contract),
+        })),
       });
     } finally {
-      // Always release lock
       await releaseOrderLock(organization._id.toString());
     }
   } catch (error) {
     console.error('Error creating order:', error);
-    
+
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         { error: 'Invalid request data', details: error.errors },
@@ -401,9 +529,9 @@ export async function GET(request: NextRequest) {
     }
 
     await connectDB();
-    
+
     const organization = await getCurrentOrganization();
-    
+
     if (!organization) {
       return NextResponse.json(
         { error: 'Organization required' },
@@ -416,7 +544,7 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '50');
 
     const query: any = {};
-    
+
     if (organization.type === 'consumer') {
       query.consumerId = organization._id;
     } else if (organization.type === 'vendor') {
@@ -431,7 +559,8 @@ export async function GET(request: NextRequest) {
       .sort({ createdAt: -1 })
       .limit(limit)
       .populate('consumerId', 'name')
-      .populate('subOrders.vendorId', 'name');
+      .populate('subOrders.vendorId', 'name')
+      .populate('contractId');
 
     return NextResponse.json({ orders });
   } catch (error) {

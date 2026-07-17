@@ -100,27 +100,119 @@ export interface PlatformRules {
   deliveryRadiusKm: number;
 }
 
-export interface ContractTerms {
-  customMinimumOrderCents?: number;
-  customDeliveryRadiusKm?: number;
-  customPlatformFeePercent?: number;
-  contractStartDate?: Date;
-  contractEndDate?: Date;
-  isActive: boolean;
-}
-
 export type ContractDurationMonths = 3 | 6 | 9 | 12;
 
 export type FulfillmentMethod = 'pickup' | 'delivery';
 
-export interface OrderContractDetails {
-  contractDurationMonths: ContractDurationMonths;
+export type ContractStatus =
+  | 'DRAFT'
+  | 'ACTIVE'
+  | 'PAUSED'
+  | 'ENDED'
+  | 'CANCELLED';
+
+export type MealPeriod = 'breakfast' | 'lunch' | 'dinner';
+
+export interface ContractPricingTerms {
+  platformFeePercent: number;
+  minimumOrderCents: number;
+  contractFeeCents: number;
+}
+
+export interface ContractItemSummary {
+  menuItemId: string;
+  name: string;
+  quantity: number;
+  price: number;
+}
+
+/**
+ * Serialized Contract as returned by APIs / used by UI. Represents the recurring
+ * consumer↔vendor agreement that generates Orders (one delivery each).
+ */
+export interface ContractSummary {
+  _id: string;
+  consumerId: string;
+  vendorId: string;
+  durationMonths: ContractDurationMonths;
+  startDate: string;
+  endDate: string;
   preparationDayOfWeek: number;
-  mealPeriods: ('breakfast' | 'lunch' | 'dinner')[];
+  mealPeriods: MealPeriod[];
   fulfillmentMethod: FulfillmentMethod;
-  deliveryFeeCents: number;
+  pricingTerms: ContractPricingTerms;
+  status: ContractStatus;
+  items?: ContractItemSummary[];
+  lastGeneratedPrepDate?: string;
+}
+
+/**
+ * Derived, display-friendly contract details for an Order. Prefers populated
+ * Contract data; falls back to per-delivery details on the Order (one-offs).
+ */
+export interface OrderContractDetails {
+  contractDurationMonths?: ContractDurationMonths;
+  preparationDayOfWeek?: number;
+  mealPeriods?: MealPeriod[];
+  fulfillmentMethod?: FulfillmentMethod;
+  deliveryFeeCents?: number;
   contractStartDate?: string;
   contractEndDate?: string;
+  contractStatus?: ContractStatus;
+}
+
+/** Order shape input for `getOrderContractDetails`. */
+export interface OrderWithContract {
+  deliveryFeeCents?: number;
+  deliveryDetails?: {
+    preparationDayOfWeek?: number;
+    mealPeriods?: MealPeriod[];
+    fulfillmentMethod?: FulfillmentMethod;
+  };
+  contract?: Partial<ContractSummary> | null;
+  contractId?: string | Partial<ContractSummary> | null;
+}
+
+/**
+ * Read contract details from an Order for UI. Prefers populated `contract` /
+ * `contractId` document; falls back to `deliveryDetails` for one-off orders.
+ */
+export function getOrderContractDetails(
+  order: OrderWithContract | null | undefined
+): OrderContractDetails {
+  if (!order) return {};
+
+  const populatedContract: Partial<ContractSummary> | null | undefined =
+    order.contract ||
+    (order.contractId && typeof order.contractId === 'object'
+      ? (order.contractId as Partial<ContractSummary>)
+      : null);
+
+  if (populatedContract) {
+    return {
+      contractDurationMonths: populatedContract.durationMonths,
+      preparationDayOfWeek: populatedContract.preparationDayOfWeek,
+      mealPeriods: populatedContract.mealPeriods,
+      fulfillmentMethod: populatedContract.fulfillmentMethod,
+      contractStartDate:
+        typeof populatedContract.startDate === 'string'
+          ? populatedContract.startDate
+          : undefined,
+      contractEndDate:
+        typeof populatedContract.endDate === 'string'
+          ? populatedContract.endDate
+          : undefined,
+      contractStatus: populatedContract.status,
+      deliveryFeeCents: order.deliveryFeeCents,
+    };
+  }
+
+  return {
+    preparationDayOfWeek: order.deliveryDetails?.preparationDayOfWeek,
+    mealPeriods: order.deliveryDetails?.mealPeriods,
+    fulfillmentMethod: order.deliveryDetails?.fulfillmentMethod,
+    deliveryFeeCents: order.deliveryFeeCents,
+  };
 }
 
 export interface VendorReview {

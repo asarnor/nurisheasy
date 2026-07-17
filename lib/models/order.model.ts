@@ -16,20 +16,25 @@ export interface ISubOrder {
   estimatedReadyAt?: Date;
 }
 
+export interface IOrderDeliveryDetails {
+  preparationDayOfWeek?: number;
+  mealPeriods?: ('breakfast' | 'lunch' | 'dinner')[];
+  fulfillmentMethod?: 'pickup' | 'delivery';
+}
+
 export interface IOrder extends Document {
   consumerId: mongoose.Types.ObjectId;
+  // Recurring contract this delivery belongs to. undefined = one-off order.
+  contractId?: mongoose.Types.ObjectId;
   status: 'PROCESSING' | 'CONFIRMED' | 'FULFILLED' | 'CANCELLED' | 'REFUNDED';
   paymentIntentId: string;
   totalAmount: number; // Total order amount in cents
   platformFee: number; // Platform fee in cents (10%)
   subOrders: ISubOrder[];
-  contractDurationMonths?: 3 | 6 | 9 | 12;
-  preparationDayOfWeek?: number;
-  mealPeriods?: ('breakfast' | 'lunch' | 'dinner')[];
-  fulfillmentMethod?: 'pickup' | 'delivery';
+  // Per-delivery fee stays on the Order (one Order = one delivery).
   deliveryFeeCents?: number;
-  contractStartDate?: Date;
-  contractEndDate?: Date;
+  // Per-delivery preferences for one-offs (or overrides). Multi-month terms live on Contract.
+  deliveryDetails?: IOrderDeliveryDetails;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -105,30 +110,27 @@ const OrderSchema: Schema = new Schema(
       min: 0,
     },
     subOrders: [SubOrderSchema],
-    contractDurationMonths: {
-      type: Number,
-      enum: [3, 6, 9, 12],
-    },
-    preparationDayOfWeek: {
-      type: Number,
-      min: 0,
-      max: 6,
-    },
-    mealPeriods: {
-      type: [String],
-      enum: ['breakfast', 'lunch', 'dinner'],
-    },
-    fulfillmentMethod: {
-      type: String,
-      enum: ['pickup', 'delivery'],
+    contractId: {
+      type: Schema.Types.ObjectId,
+      ref: 'Contract',
+      index: true,
     },
     deliveryFeeCents: {
       type: Number,
       min: 0,
       default: 0,
     },
-    contractStartDate: Date,
-    contractEndDate: Date,
+    deliveryDetails: {
+      preparationDayOfWeek: { type: Number, min: 0, max: 6 },
+      mealPeriods: {
+        type: [String],
+        enum: ['breakfast', 'lunch', 'dinner'],
+      },
+      fulfillmentMethod: {
+        type: String,
+        enum: ['pickup', 'delivery'],
+      },
+    },
   },
   {
     timestamps: true,
