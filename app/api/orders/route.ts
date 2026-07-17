@@ -225,40 +225,18 @@ export async function POST(request: NextRequest) {
         vendorById.set(vendorId, menuItem.vendorId);
       }
 
-<<<<<<< HEAD
-      // Contract-like orders auto-accept (issue #6). Also honored:
-      // vendorSettings.autoAcceptOrders on a per-vendor basis.
       const isContractLike = Boolean(validatedData.contract);
       const nowDate = new Date();
 
-      // Calculate totals and create sub-orders (with per-vendor auto-accept)
-      const subOrders: Array<{
-        vendorId: string;
-        status: 'PENDING' | 'ACCEPTED';
-        items: Array<{
-          menuItemId: any;
-          name: string;
-          quantity: number;
-          price: number;
-        }>;
-        vendorTotal: number;
-        acceptedAt?: Date;
-        autoAccepted?: boolean;
-      }> = [];
-      let totalAmount = 0;
-=======
-      const isContractLike = Boolean(validatedData.contract);
-
-      // Build per-vendor sub-order payloads. When a contract is provided we
-      // split into one Order per vendor below (Order = one delivery from one
-      // Contract). Without a contract we keep a single multi-vendor Order.
+      // Build per-vendor sub-order payloads. Contract-like orders and vendors
+      // with autoAcceptOrders=true are auto-accepted at creation (issue #6).
       type VendorPayload = {
         vendorId: string;
         vendorName: string;
         vendorTotal: number;
         subOrder: {
           vendorId: string;
-          status: 'PENDING';
+          status: 'PENDING' | 'ACCEPTED';
           items: Array<{
             menuItemId: any;
             name: string;
@@ -266,11 +244,12 @@ export async function POST(request: NextRequest) {
             price: number;
           }>;
           vendorTotal: number;
+          acceptedAt?: Date;
+          autoAccepted?: boolean;
         };
       };
       const vendorPayloads: VendorPayload[] = [];
       let combinedTotal = 0;
->>>>>>> origin/main
 
       for (const [vendorId, items] of vendorGroups) {
         let vendorTotal = 0;
@@ -297,19 +276,10 @@ export async function POST(request: NextRequest) {
         }
 
         const vendor = vendorById.get(vendorId) as any;
-<<<<<<< HEAD
         const autoAccept = shouldAutoAcceptSubOrder(
           { contractDurationMonths: isContractLike ? 3 : undefined },
           vendor?.vendorSettings?.autoAcceptOrders
         );
-
-        subOrders.push({
-          vendorId,
-          status: autoAccept ? 'ACCEPTED' : 'PENDING',
-          items: subOrderItems,
-          vendorTotal,
-          ...(autoAccept ? { acceptedAt: nowDate, autoAccepted: true } : {}),
-=======
 
         vendorPayloads.push({
           vendorId,
@@ -317,11 +287,11 @@ export async function POST(request: NextRequest) {
           vendorTotal,
           subOrder: {
             vendorId,
-            status: 'PENDING',
+            status: autoAccept ? 'ACCEPTED' : 'PENDING',
             items: subOrderItems,
             vendorTotal,
+            ...(autoAccept ? { acceptedAt: nowDate, autoAccepted: true } : {}),
           },
->>>>>>> origin/main
         });
 
         combinedTotal += vendorTotal;
@@ -466,30 +436,28 @@ export async function POST(request: NextRequest) {
         created.push({ order, paymentIntent });
       }
 
-<<<<<<< HEAD
-      for (const sub of order.subOrders) {
-        if (sub.status === 'PENDING') {
-          console.log(
-            `[notify:new-order] vendor=${sub.vendorId} order=${order._id} — push/email would fire`
-          );
+      // Notify vendors and auto-capture if all sub-orders were auto-accepted (issue #6).
+      for (const { order } of created) {
+        for (const sub of order.subOrders) {
+          if (sub.status === 'PENDING') {
+            console.log(
+              `[notify:new-order] vendor=${sub.vendorId} order=${order._id} — push/email would fire`
+            );
+          }
         }
-      }
 
-      // If every non-cancelled sub-order was auto-accepted at creation, capture
-      // immediately (issue #6).
-      if (allActiveSubOrdersAccepted(order.subOrders)) {
-        try {
-          await captureAndTransferForOrder(order);
-        } catch (error) {
-          console.error('Auto-accept capture/transfer failed:', error);
+        if (allActiveSubOrdersAccepted(order.subOrders)) {
+          try {
+            await captureAndTransferForOrder(order);
+          } catch (error) {
+            console.error('Auto-accept capture/transfer failed:', error);
+          }
+          recomputeOrderStatus(order);
+          await order.save();
         }
-        recomputeOrderStatus(order);
-        await order.save();
       }
 
       // Decrement stock quantities for items that track inventory
-=======
->>>>>>> origin/main
       if (platformRules.inventory.trackStock) {
         for (const reqItem of validatedData.items) {
           await MenuItem.updateOne(

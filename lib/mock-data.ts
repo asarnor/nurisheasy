@@ -1085,64 +1085,22 @@ export const createMockOrder = (
   const deliveryFeeCents =
     contractOptions.fulfillmentMethod === 'delivery' ? DELIVERY_FEE_CENTS : 0;
 
-<<<<<<< HEAD
   const nowIso = new Date().toISOString();
-  subOrders.forEach((sub) => {
-    const vendor = store.organizations.vendors.find(
-      (entry) => entry.id === sub.vendorId
-    );
-    const autoAccept =
-      isContractLike || vendor?.vendorSettings?.autoAcceptOrders === true;
-
-    if (autoAccept) {
-      sub.status = 'ACCEPTED';
-      sub.acceptedAt = nowIso;
-      sub.autoAccepted = true;
-    }
-  });
-
-  const anyPending = subOrders.some((sub) => sub.status === 'PENDING');
-
-  const contractStartDate = new Date();
-  const contractEndDate = calculateContractEndDate(
-    contractStartDate,
-    contractOptions.contractDurationMonths
-  );
-
-  const order: MockOrder = {
-    _id: `order_mock_${Date.now()}`,
-    status: anyPending ? 'PROCESSING' : 'CONFIRMED',
-    paymentIntentId: `pi_mock_${Date.now()}`,
-    totalAmount,
-    platformFee: Math.round(totalAmount * 0.1),
-    createdAt: nowIso,
-    consumerId: {
-      _id: store.organizations.consumer.id,
-      name: store.organizations.consumer.name,
-    },
-    contractDurationMonths: contractOptions.contractDurationMonths,
-    preparationDayOfWeek: contractOptions.preparationDayOfWeek,
-    mealPeriods: contractOptions.mealPeriods,
-    fulfillmentMethod: contractOptions.fulfillmentMethod,
-    deliveryFeeCents,
-    contractStartDate: contractStartDate.toISOString(),
-    contractEndDate: contractEndDate.toISOString(),
-    subOrders,
-  };
-=======
   const createdOrders: MockOrder[] = [];
 
   vendorGroups.forEach((groupItems, vendorId) => {
     const vendor = store.organizations.vendors.find((entry) => entry.id === vendorId);
     const vendorTotal = sumItems(groupItems);
->>>>>>> origin/main
+    const autoAccept =
+      isContractLike || vendor?.vendorSettings?.autoAcceptOrders === true;
 
     const subOrder: MockSubOrder = {
       vendorId,
       vendorName: vendor?.name || 'Vendor',
-      status: 'PENDING',
+      status: autoAccept ? 'ACCEPTED' : 'PENDING',
       items: groupItems,
       vendorTotal,
+      ...(autoAccept ? { acceptedAt: nowIso, autoAccepted: true } : {}),
     };
 
     const orderTotal = vendorTotal + deliveryFeeCents;
