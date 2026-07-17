@@ -55,15 +55,28 @@ export const VendorCard: React.FC<VendorCardProps> = ({
         )}
 
         <div className="flex flex-wrap gap-2">
-          {vendor.certifications.slice(0, 3).map((cert) => (
-            <Badge key={cert} variant="info">
-              {certificationLabel(cert)}
-            </Badge>
-          ))}
+          {vendor.certifications.slice(0, 3).map((cert) => {
+            const isApproved = vendor.certificationsReviewStatus === 'approved';
+            return (
+              <Badge key={cert} variant={isApproved ? 'info' : 'warning'}>
+                {certificationLabel(cert)}
+                {!isApproved && ' · unverified'}
+              </Badge>
+            );
+          })}
           {!vendor.acceptingNewContracts && (
             <Badge variant="warning">Waitlist only</Badge>
           )}
         </div>
+
+        {vendor.facilityAllergensHandled?.length > 0 && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs text-amber-900">
+            <span className="font-semibold">Kitchen handles: </span>
+            {vendor.facilityAllergensHandled
+              .map((allergen) => allergen.replace(/_/g, ' ').toLowerCase())
+              .join(', ')}
+          </div>
+        )}
 
         <div className="mt-auto grid gap-2 text-xs text-slate-600">
           <div className="flex items-center justify-between gap-2">

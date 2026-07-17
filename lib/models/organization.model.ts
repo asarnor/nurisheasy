@@ -17,8 +17,10 @@ export interface IVendorSettings {
   autoAcceptOrders?: boolean;
   kdsSoundEnabled?: boolean;
   certifications?: string[];
+  certificationsReviewStatus?: 'pending' | 'approved' | 'rejected';
   allergenPolicyNotes?: string;
   ingredientSourcingNotes?: string;
+  facilityAllergensHandled?: string[];
   offeredContractDurations?: (3 | 6 | 9 | 12)[];
   minimumOrderCents?: number;
   deliveryFeeCents?: number;
@@ -39,6 +41,7 @@ export interface IOrganization extends Document {
     criticalAllergens: string[]; // HARD BLOCK
     preferences: string[]; // WARN ONLY
     taxExempt: boolean;
+    blockFacilityCrossContact?: boolean; // Hard-block vendors whose facility handles a critical allergen
   };
   address?: {
     street: string;
@@ -117,6 +120,10 @@ const OrganizationSchema: Schema = new Schema(
         type: Boolean,
         default: false,
       },
+      blockFacilityCrossContact: {
+        type: Boolean,
+        default: false,
+      },
     },
     address: {
       street: String,
@@ -152,8 +159,29 @@ const OrganizationSchema: Schema = new Schema(
       autoAcceptOrders: { type: Boolean, default: false },
       kdsSoundEnabled: { type: Boolean, default: true },
       certifications: { type: [String], default: [] },
+      certificationsReviewStatus: {
+        type: String,
+        enum: ['pending', 'approved', 'rejected'],
+        default: 'pending',
+      },
       allergenPolicyNotes: String,
       ingredientSourcingNotes: String,
+      facilityAllergensHandled: {
+        type: [String],
+        default: [],
+        enum: [
+          'PEANUT',
+          'TREE_NUT',
+          'SHELLFISH',
+          'FISH',
+          'EGG',
+          'DAIRY',
+          'SOY',
+          'WHEAT',
+          'GLUTEN',
+          'SESAME',
+        ],
+      },
       offeredContractDurations: {
         type: [Number],
         enum: [3, 6, 9, 12],

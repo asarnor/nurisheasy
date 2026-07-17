@@ -11,6 +11,7 @@ interface SafetyProfile {
   criticalAllergens: string[];
   preferences: string[];
   taxExempt: boolean;
+  blockFacilityCrossContact?: boolean;
 }
 
 interface Organization {
@@ -187,6 +188,29 @@ export const ConsumerProfileForm: React.FC = () => {
               onChange={() => handleAllergenToggle(allergen)}
             />
           ))}
+        </div>
+        <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50/60 p-4">
+          <Toggle
+            label="Also block vendors whose kitchen handles any of my critical allergens"
+            checked={Boolean(organization.safetyProfile.blockFacilityCrossContact)}
+            onChange={(checked) => {
+              setOrganization({
+                ...organization,
+                safetyProfile: {
+                  ...organization.safetyProfile,
+                  blockFacilityCrossContact: checked,
+                },
+              });
+              setSaveMessage(null);
+            }}
+          />
+          <p className="mt-2 text-xs text-slate-600">
+            Recommended for severe allergies. When on, we hide any vendor whose
+            <em> facilityAllergensHandled </em>
+            list overlaps with your critical allergens — even if a specific
+            dish is tagged allergen-free — because of cross-contact risk in
+            the vendor&rsquo;s kitchen.
+          </p>
         </div>
       </Card>
 

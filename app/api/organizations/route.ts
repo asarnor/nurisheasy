@@ -20,6 +20,7 @@ const updateOrganizationSchema = z.object({
     criticalAllergens: z.array(z.string()).optional(),
     preferences: z.array(z.string()).optional(),
     taxExempt: z.boolean().optional(),
+    blockFacilityCrossContact: z.boolean().optional(),
   }).optional(),
 });
 
@@ -158,6 +159,10 @@ export async function PATCH(request: NextRequest) {
       }
       if (validatedData.safetyProfile.taxExempt !== undefined) {
         organization.safetyProfile.taxExempt = validatedData.safetyProfile.taxExempt;
+      }
+      if (validatedData.safetyProfile.blockFacilityCrossContact !== undefined) {
+        (organization.safetyProfile as any).blockFacilityCrossContact =
+          validatedData.safetyProfile.blockFacilityCrossContact;
       }
     }
 

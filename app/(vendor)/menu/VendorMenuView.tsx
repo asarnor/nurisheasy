@@ -32,13 +32,53 @@ interface MenuItem {
   displayImageUrl?: string;
   mealCategories?: MealCategory[];
   category?: string;
+  lastVerifiedAt?: string | null;
+  lastAttestedAt?: string | null;
+  lastAttestedBy?: string | null;
+  allergenAttestation?: {
+    confirmedTags: string[];
+    confirmedAbsentTags: string[];
+    attestedBy: string;
+    attestedAt: string | null;
+  } | null;
 }
+
+const ALL_ALLERGENS = [
+  'PEANUT',
+  'TREE_NUT',
+  'SHELLFISH',
+  'FISH',
+  'EGG',
+  'DAIRY',
+  'SOY',
+  'WHEAT',
+  'GLUTEN',
+  'SESAME',
+];
+
+const STALE_HOURS = 24;
+
+const hoursSince = (iso?: string | null) => {
+  if (!iso) return null;
+  const ms = Date.now() - new Date(iso).getTime();
+  if (Number.isNaN(ms)) return null;
+  return ms / (1000 * 60 * 60);
+};
+
+const isStale = (item: MenuItem) => {
+  const age = hoursSince(item.lastVerifiedAt);
+  return age === null || age > STALE_HOURS;
+};
 
 export default function MenuEditorPage() {
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [menuView, setMenuView] = useState<MealPeriodView>('all');
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null);
+  const [attestationConfirmed, setAttestationConfirmed] = useState<
+    Record<string, 'present' | 'absent' | null>
+  >({});
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -60,6 +100,15 @@ export default function MenuEditorPage() {
     mealCategories: [...DEFAULT_MEAL_CATEGORIES] as MealCategory[],
     isAvailable: true,
   });
+
+  const emptyAttestation = () =>
+    ALL_ALLERGENS.reduce<Record<string, 'present' | 'absent' | null>>(
+      (acc, allergen) => {
+        acc[allergen] = null;
+        return acc;
+      },
+      {}
+    );
 
   useEffect(() => {
     fetchMenuItems();
@@ -86,6 +135,7 @@ export default function MenuEditorPage() {
 
   const handleEdit = (item: MenuItem) => {
     setEditingItem(item);
+    setSaveError(null);
     setFormData({
       name: item.name,
       description: item.description || '',
@@ -98,6 +148,23 @@ export default function MenuEditorPage() {
         : [...DEFAULT_MEAL_CATEGORIES],
       isAvailable: item.isAvailable,
     });
+
+    // Preload the tri-state attestation grid. If the vendor previously
+    // attested we honor their answers; otherwise we mark existing allergen
+    // tags as "present" and leave the rest unattested so the vendor must
+    // explicitly touch each row before saving.
+    const initial = emptyAttestation();
+    const priorConfirmedPresent =
+      item.allergenAttestation?.confirmedTags ?? item.allergenTags ?? [];
+    const priorConfirmedAbsent =
+      item.allergenAttestation?.confirmedAbsentTags ?? [];
+    priorConfirmedPresent.forEach((tag) => {
+      if (tag in initial) initial[tag] = 'present';
+    });
+    priorConfirmedAbsent.forEach((tag) => {
+      if (tag in initial) initial[tag] = 'absent';
+    });
+    setAttestationConfirmed(initial);
   };
 
   const toggleMealCategory = (meal: MealCategory) => {
@@ -116,12 +183,43 @@ export default function MenuEditorPage() {
   const openNewItemForm = () => {
     setEditingItem({} as MenuItem);
     setFormData(resetForm());
+    setAttestationConfirmed(emptyAttestation());
+    setSaveError(null);
   };
 
   const handleSave = async () => {
+    setSaveError(null);
+
+    // Force the vendor to explicitly say "present" or "absent" for every
+    // allergen we track. A menu item saved with an "unknown" allergen state
+    // would silently defeat the safety gate, so we hard-stop here.
+    const unattested = ALL_ALLERGENS.filter(
+      (allergen) => attestationConfirmed[allergen] == null
+    );
+    if (unattested.length > 0) {
+      setSaveError(
+        `Please attest each allergen (present or absent) before saving. Missing: ${unattested
+          .map((tag) => tag.replace(/_/g, ' '))
+          .join(', ')}.`
+      );
+      return;
+    }
+
+    const confirmedTags = ALL_ALLERGENS.filter(
+      (allergen) => attestationConfirmed[allergen] === 'present'
+    );
+    const confirmedAbsentTags = ALL_ALLERGENS.filter(
+      (allergen) => attestationConfirmed[allergen] === 'absent'
+    );
+
     try {
       const payload = {
         ...formData,
+        allergenTags: confirmedTags,
+        allergenAttestation: {
+          confirmedTags,
+          confirmedAbsentTags,
+        },
         price: Math.round(parseFloat(formData.price) * 100),
         imageUrl: formData.imageUrl.trim() || undefined,
         mealCategories: formData.mealCategories,
@@ -147,14 +245,39 @@ export default function MenuEditorPage() {
       if (response.ok) {
         setEditingItem(null);
         setFormData(resetForm());
+        setAttestationConfirmed(emptyAttestation());
         fetchMenuItems();
       } else {
-        alert('Failed to save menu item');
+        const err = await response.json().catch(() => ({}));
+        setSaveError(err?.error || 'Failed to save menu item');
       }
     } catch (error) {
       console.error('Error saving menu item:', error);
-      alert('Failed to save menu item');
+      setSaveError('Failed to save menu item');
     }
+  };
+
+  const handleReVerify = async (itemId: string) => {
+    try {
+      const response = await apiFetch(`/api/menus/${itemId}/verify`, {
+        method: 'POST',
+      });
+      if (response.ok) {
+        fetchMenuItems();
+      }
+    } catch (error) {
+      console.error('Error re-verifying menu item:', error);
+    }
+  };
+
+  const toggleAttestation = (
+    allergen: string,
+    next: 'present' | 'absent'
+  ) => {
+    setAttestationConfirmed((prev) => ({
+      ...prev,
+      [allergen]: prev[allergen] === next ? null : next,
+    }));
   };
 
   const handleToggleAvailability = async (itemId: string, currentStatus: boolean) => {
@@ -175,60 +298,77 @@ export default function MenuEditorPage() {
     }
   };
 
-  const allergenOptions = [
-    'PEANUT',
-    'TREE_NUT',
-    'SHELLFISH',
-    'FISH',
-    'EGG',
-    'DAIRY',
-    'SOY',
-    'WHEAT',
-    'GLUTEN',
-    'SESAME',
-  ];
-
   const getItemsForMeal = (meal: MealCategory) =>
     menuItems.filter((item) => itemMatchesMeal(item, meal));
 
   const visibleItems =
     menuView === 'all' ? menuItems : getItemsForMeal(menuView);
 
-  const renderMenuCard = (item: MenuItem) => (
-    <Card key={item._id} className="overflow-hidden">
-      <MenuItemPhoto item={item} />
-      <div className="p-4">
-        <div className="flex justify-between items-start mb-2">
-          <h3 className="font-semibold text-lg text-slate-900">{item.name}</h3>
-          <Toggle
-            label=""
-            checked={item.isAvailable}
-            onChange={() => handleToggleAvailability(item._id, item.isAvailable)}
-          />
+  const renderMenuCard = (item: MenuItem) => {
+    const stale = isStale(item);
+    const age = hoursSince(item.lastVerifiedAt);
+    const ageLabel =
+      age === null
+        ? 'not verified'
+        : age < 1
+        ? 'verified <1h ago'
+        : `verified ${Math.round(age)}h ago`;
+
+    return (
+      <Card key={item._id} className="overflow-hidden">
+        <MenuItemPhoto item={item} />
+        <div className="p-4">
+          <div className="flex justify-between items-start mb-2">
+            <h3 className="font-semibold text-lg text-slate-900">{item.name}</h3>
+            <Toggle
+              label=""
+              checked={item.isAvailable}
+              onChange={() => handleToggleAvailability(item._id, item.isAvailable)}
+            />
+          </div>
+          <p className="text-sm text-slate-500 mb-2">{item.description}</p>
+          {item.mealCategories?.length ? (
+            <p className="text-xs font-medium text-emerald-700 mb-2">
+              {formatMealCategories(item.mealCategories)}
+            </p>
+          ) : null}
+          <p className="font-semibold mb-2 text-slate-900">${(item.price / 100).toFixed(2)}</p>
+          {item.allergenTags.length > 0 && (
+            <p className="text-xs text-rose-600 mb-2">
+              Contains: {item.allergenTags.join(', ')}
+            </p>
+          )}
+          <div
+            className={`mb-2 inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold ${
+              stale
+                ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+            }`}
+          >
+            {stale ? '⚠ Verification stale' : '✓ Verified'} · {ageLabel}
+          </div>
+          <div className="flex gap-2 mt-2">
+            <Button
+              onClick={() => handleEdit(item)}
+              variant="outline"
+              size="sm"
+              className="flex-1"
+            >
+              Edit
+            </Button>
+            <Button
+              onClick={() => handleReVerify(item._id)}
+              variant="secondary"
+              size="sm"
+              className="flex-1"
+            >
+              Re-verify
+            </Button>
+          </div>
         </div>
-        <p className="text-sm text-slate-500 mb-2">{item.description}</p>
-        {item.mealCategories?.length ? (
-          <p className="text-xs font-medium text-emerald-700 mb-2">
-            {formatMealCategories(item.mealCategories)}
-          </p>
-        ) : null}
-        <p className="font-semibold mb-2 text-slate-900">${(item.price / 100).toFixed(2)}</p>
-        {item.allergenTags.length > 0 && (
-          <p className="text-xs text-rose-600 mb-2">
-            Contains: {item.allergenTags.join(', ')}
-          </p>
-        )}
-        <Button
-          onClick={() => handleEdit(item)}
-          variant="outline"
-          size="sm"
-          className="w-full mt-2"
-        >
-          Edit
-        </Button>
-      </div>
-    </Card>
-  );
+      </Card>
+    );
+  };
 
   const renderMenuGrid = (items: MenuItem[]) => {
     if (items.length === 0) {
@@ -337,27 +477,53 @@ export default function MenuEditorPage() {
 
               <div>
                 <label className="block text-sm font-semibold text-slate-700 mb-2">
-                  Allergens
+                  Allergen attestation
                 </label>
-                <div className="flex flex-wrap gap-2">
-                  {allergenOptions.map((allergen) => (
-                    <button
-                      key={allergen}
-                      onClick={() => {
-                        const newTags = formData.allergenTags.includes(allergen)
-                          ? formData.allergenTags.filter((t) => t !== allergen)
-                          : [...formData.allergenTags, allergen];
-                        setFormData({ ...formData, allergenTags: newTags });
-                      }}
-                      className={`px-3 py-1 rounded-full text-sm ${
-                        formData.allergenTags.includes(allergen)
-                          ? 'bg-rose-100 text-rose-800 border border-rose-200'
-                          : 'bg-slate-100 text-slate-700 border border-slate-200'
-                      }`}
-                    >
-                      {allergen.replace(/_/g, ' ')}
-                    </button>
-                  ))}
+                <p className="mb-3 text-xs text-slate-500">
+                  Confirm every allergen as either <strong>present</strong> or
+                  <strong> absent</strong>. This attestation is stored with your
+                  name and time-stamped so the safety gate never runs on
+                  unverified tags. Menu items with unattested allergens cannot
+                  be saved.
+                </p>
+                <div className="space-y-2">
+                  {ALL_ALLERGENS.map((allergen) => {
+                    const state = attestationConfirmed[allergen];
+                    return (
+                      <div
+                        key={allergen}
+                        className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white/70 px-3 py-2"
+                      >
+                        <span className="text-sm font-medium text-slate-800">
+                          {allergen.replace(/_/g, ' ')}
+                        </span>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => toggleAttestation(allergen, 'present')}
+                            className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                              state === 'present'
+                                ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                                : 'bg-slate-100 text-slate-500 border border-slate-200'
+                            }`}
+                          >
+                            Contains
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => toggleAttestation(allergen, 'absent')}
+                            className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                              state === 'absent'
+                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                                : 'bg-slate-100 text-slate-500 border border-slate-200'
+                            }`}
+                          >
+                            Does not contain
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
               
@@ -373,13 +539,22 @@ export default function MenuEditorPage() {
                 checked={formData.isAvailable}
                 onChange={(checked) => setFormData({ ...formData, isAvailable: checked })}
               />
-              
+
+              {saveError && (
+                <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                  {saveError}
+                </p>
+              )}
+
               <div className="flex gap-2">
                 <Button onClick={handleSave} className="flex-1">
                   Save
                 </Button>
                 <Button
-                  onClick={() => setEditingItem(null)}
+                  onClick={() => {
+                    setEditingItem(null);
+                    setSaveError(null);
+                  }}
                   variant="secondary"
                   className="flex-1"
                 >

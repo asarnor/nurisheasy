@@ -23,6 +23,11 @@ export interface ISubOrder {
     name: string;
     quantity: number;
     price: number; // Price per item in cents
+    // Snapshot of vendor-reported allergen tags at purchase time — kept
+    // for audit and dispute resolution. The pre-save safety gate still
+    // checks the live MenuItem to catch late tag changes.
+    allergenTags?: string[];
+    allergenAttestedAt?: Date;
   }>;
   vendorTotal: number; // Total for this vendor in cents
   acceptedAt?: Date;
@@ -87,6 +92,11 @@ const SubOrderSchema: Schema = new Schema(
           required: true,
           min: 0,
         },
+        allergenTags: {
+          type: [String],
+          default: [],
+        },
+        allergenAttestedAt: Date,
       },
     ],
     vendorTotal: {

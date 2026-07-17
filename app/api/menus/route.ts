@@ -3,9 +3,12 @@ import { z } from 'zod';
 import connectDB from '@/lib/mongodb';
 import MenuItem from '@/lib/models/menu.model';
 import { getCurrentOrganization } from '@/lib/utils/clerk';
+import { auth } from '@clerk/nextjs/server';
 import { isWithinDeliveryRadius } from '@/lib/utils/geospatial';
 import { shouldUseMockData, getDebugRoleFromRequest } from '@/lib/utils/debug';
 import { createMockMenuItem, getMockMenuItems, getMockVendorId } from '@/lib/mock-data';
+import { getActivePlatformRules } from '@/lib/platform-rules';
+import { isMenuItemStale, toStaleRules } from '@/lib/menu-verification';
 import {
   assignGeneratedImageIfNeeded,
   resolveMenuItemImageUrl,
@@ -20,6 +23,35 @@ import {
 
 const mealCategorySchema = z.enum(['breakfast', 'lunch', 'dinner']);
 
+const allergenAttestationSchema = z.object({
+  confirmedTags: z.array(z.string()).default([]),
+  confirmedAbsentTags: z.array(z.string()).default([]),
+  attestedBy: z.string().optional(),
+});
+
+// Ensures the vendor has explicitly attested to every allergen they marked
+// present (or absent). Callers pass `allergenTags` (present) and the full
+// attestation payload. If the vendor tagged an item with an allergen but did
+// not confirm it in `confirmedTags`, we reject the write so the safety gate
+// never runs on unattested data.
+function validateAttestationPayload(
+  presentTags: string[] | undefined,
+  attestation: { confirmedTags: string[]; confirmedAbsentTags: string[] } | undefined
+) {
+  const present = presentTags || [];
+  const confirmed = attestation?.confirmedTags || [];
+  const missing = present.filter((tag) => !confirmed.includes(tag));
+  if (missing.length > 0) {
+    return NextResponse.json(
+      {
+        error: `Attestation required for allergens: ${missing.join(', ')}. Confirm each tag on the item.`,
+      },
+      { status: 400 }
+    );
+  }
+  return null;
+}
+
 const menuItemSchema = z.object({
   name: z.string().min(1),
   description: z.string().optional(),
@@ -33,6 +65,7 @@ const menuItemSchema = z.object({
   stockQuantity: z.number().int().min(0).nullable().optional(),
   servingSizeOz: z.number().min(0).nullable().optional(),
   maxPortionsPerOrder: z.number().int().min(1).nullable().optional(),
+  allergenAttestation: allergenAttestationSchema,
 });
 
 const formatMenuItem = (item: any, organizationName?: string) => {
@@ -55,6 +88,17 @@ const formatMenuItem = (item: any, organizationName?: string) => {
     stockQuantity: item.stockQuantity ?? null,
     servingSizeOz: item.servingSizeOz ?? null,
     maxPortionsPerOrder: item.maxPortionsPerOrder ?? null,
+    lastVerifiedAt: item.lastVerifiedAt || null,
+    lastAttestedAt: item.lastAttestedAt || item.allergenAttestation?.attestedAt || null,
+    lastAttestedBy: item.lastAttestedBy || item.allergenAttestation?.attestedBy || null,
+    allergenAttestation: item.allergenAttestation
+      ? {
+          confirmedTags: item.allergenAttestation.confirmedTags || [],
+          confirmedAbsentTags: item.allergenAttestation.confirmedAbsentTags || [],
+          attestedBy: item.allergenAttestation.attestedBy || '',
+          attestedAt: item.allergenAttestation.attestedAt || null,
+        }
+      : null,
   };
 
   return {
@@ -140,13 +184,31 @@ export async function GET(request: NextRequest) {
 
     let menuItems = await MenuItem.find(query).populate(
       'vendorId',
-      'name address marketplaceVisible vendorSettings'
+      'name address marketplaceVisible vendorSettings safetyProfile'
+    );
+
+    const rules = await getActivePlatformRules();
+    const staleRules = toStaleRules(rules.inventory);
+    const criticalAllergens = organization.safetyProfile.criticalAllergens || [];
+    const blockFacility = Boolean(
+      (organization.safetyProfile as any).blockFacilityCrossContact
     );
 
     menuItems = menuItems.filter((item: any) => {
       const vendor = item.vendorId;
       if (!vendor || vendor.marketplaceVisible === false) {
         return false;
+      }
+      if (isMenuItemStale(item, staleRules)) {
+        return false;
+      }
+      // Facility-level cross-contact hard block
+      if (blockFacility && criticalAllergens.length) {
+        const facility: string[] =
+          (vendor.vendorSettings as any)?.facilityAllergensHandled || [];
+        if (facility.some((tag) => criticalAllergens.includes(tag))) {
+          return false;
+        }
       }
       return true;
     });
@@ -199,10 +261,27 @@ export async function POST(request: NextRequest) {
 
       const body = await request.json();
       const validatedData = menuItemSchema.parse(body);
+      const attestationValidation = validateAttestationPayload(
+        validatedData.allergenTags,
+        validatedData.allergenAttestation
+      );
+      if (attestationValidation) return attestationValidation;
+
       const vendorId = getMockVendorId();
+      const nowIso = new Date().toISOString();
+      const attesterId = validatedData.allergenAttestation.attestedBy || 'debug-vendor';
       const menuItem = createMockMenuItem(vendorId, {
         ...validatedData,
         mealCategories: normalizeMealCategoriesInput(validatedData.mealCategories),
+        lastVerifiedAt: nowIso,
+        allergenAttestation: {
+          confirmedTags: validatedData.allergenAttestation.confirmedTags,
+          confirmedAbsentTags: validatedData.allergenAttestation.confirmedAbsentTags,
+          attestedBy: attesterId,
+          attestedAt: nowIso,
+        },
+        lastAttestedAt: nowIso,
+        lastAttestedBy: attesterId,
       });
 
       if (!menuItem) {
@@ -230,16 +309,38 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const validatedData = menuItemSchema.parse(body);
+    const attestationValidation = validateAttestationPayload(
+      validatedData.allergenTags,
+      validatedData.allergenAttestation
+    );
+    if (attestationValidation) return attestationValidation;
+
     const withImage = assignGeneratedImageIfNeeded({
       ...validatedData,
       mealCategories: normalizeMealCategoriesInput(validatedData.mealCategories),
     });
 
+    const { userId } = await auth();
+    const attesterId =
+      validatedData.allergenAttestation.attestedBy ||
+      userId ||
+      organization.name ||
+      'vendor';
+    const now = new Date();
+
     const menuItem = await MenuItem.create({
       ...withImage,
       mealCategories: normalizeMealCategoriesInput(validatedData.mealCategories),
       vendorId: organization._id,
-      lastVerifiedAt: new Date(),
+      lastVerifiedAt: now,
+      allergenAttestation: {
+        confirmedTags: validatedData.allergenAttestation.confirmedTags,
+        confirmedAbsentTags: validatedData.allergenAttestation.confirmedAbsentTags,
+        attestedBy: attesterId,
+        attestedAt: now,
+      },
+      lastAttestedAt: now,
+      lastAttestedBy: attesterId,
     });
 
     return NextResponse.json({
