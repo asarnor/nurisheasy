@@ -72,14 +72,6 @@ export interface IOrganization extends Document {
     notificationQuietHoursStart?: string;
     notificationQuietHoursEnd?: string;
   };
-  contractTerms?: {
-    customMinimumOrderCents?: number;
-    customDeliveryRadiusKm?: number;
-    customPlatformFeePercent?: number;
-    contractStartDate?: Date;
-    contractEndDate?: Date;
-    isActive: boolean;
-  };
   createdAt: Date;
   updatedAt: Date;
 }
@@ -223,14 +215,6 @@ const OrganizationSchema: Schema = new Schema(
       notifyMarketing: { type: Boolean, default: false },
       notificationQuietHoursStart: { type: String, default: '22:00' },
       notificationQuietHoursEnd: { type: String, default: '07:00' },
-    },
-    contractTerms: {
-      customMinimumOrderCents: { type: Number, min: 0 },
-      customDeliveryRadiusKm: { type: Number, min: 1 },
-      customPlatformFeePercent: { type: Number, min: 0, max: 100 },
-      contractStartDate: Date,
-      contractEndDate: Date,
-      isActive: { type: Boolean, default: false },
     },
   },
   {

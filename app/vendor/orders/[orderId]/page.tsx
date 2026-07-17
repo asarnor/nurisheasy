@@ -10,8 +10,7 @@ import { VendorShell } from '@/components/layout/VendorShell';
 import { vendorPath } from '@/lib/utils/debug-client';
 import { apiFetch } from '@/lib/utils/api';
 
-import type { FulfillmentMethod } from '@/lib/contract-options';
-import type { MealCategory } from '@/lib/meal-categories';
+import { getOrderContractDetails, type OrderWithContract } from '@/lib/types';
 
 interface OrderItem {
   name: string;
@@ -27,20 +26,13 @@ interface SubOrder {
   allergenAlerts?: string[];
 }
 
-interface Order {
+interface Order extends OrderWithContract {
   _id: string;
   createdAt: string;
   status: string;
   consumerId?: { name?: string };
   consumerName?: string;
   totalAmount?: number;
-  deliveryFeeCents?: number;
-  contractDurationMonths?: 3 | 6 | 9 | 12;
-  preparationDayOfWeek?: number;
-  mealPeriods?: MealCategory[];
-  fulfillmentMethod?: FulfillmentMethod;
-  contractStartDate?: string;
-  contractEndDate?: string;
   subOrders: SubOrder[];
 }
 
@@ -125,18 +117,23 @@ export default function VendorOrderDetailPage() {
           </Card>
         ) : (
           <div className="space-y-6">
-            <ContractOrderSummary
-              order={{
-                consumerName: order.consumerId?.name || order.consumerName || 'Unknown',
-                contractDurationMonths: order.contractDurationMonths,
-                preparationDayOfWeek: order.preparationDayOfWeek,
-                mealPeriods: order.mealPeriods,
-                fulfillmentMethod: order.fulfillmentMethod,
-                deliveryFeeCents: order.deliveryFeeCents,
-                contractStartDate: order.contractStartDate ?? order.createdAt,
-                contractEndDate: order.contractEndDate,
-              }}
-            />
+            {(() => {
+              const contractDetails = getOrderContractDetails(order);
+              return (
+                <ContractOrderSummary
+                  order={{
+                    consumerName: order.consumerId?.name || order.consumerName || 'Unknown',
+                    contractDurationMonths: contractDetails.contractDurationMonths,
+                    preparationDayOfWeek: contractDetails.preparationDayOfWeek,
+                    mealPeriods: contractDetails.mealPeriods,
+                    fulfillmentMethod: contractDetails.fulfillmentMethod,
+                    deliveryFeeCents: contractDetails.deliveryFeeCents,
+                    contractStartDate: contractDetails.contractStartDate ?? order.createdAt,
+                    contractEndDate: contractDetails.contractEndDate,
+                  }}
+                />
+              );
+            })()}
 
             <Card>
               <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">

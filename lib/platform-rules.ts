@@ -20,7 +20,8 @@ export const DEFAULT_RULES = {
     defaultDeliveryWindowMinutes: 45,
     orderCutoffTime: '20:00',
     advanceOrderMinHours: 1,
-    vendorAcceptanceTimeoutMinutes: 15,
+    // Bumped from 15 → 30 per issue #6 (auto-expire at 30 min, configurable via PlatformRule)
+    vendorAcceptanceTimeoutMinutes: 30,
     lateDeliveryThresholdMinutes: 15,
   } satisfies IDeliveryTimingRules,
 
