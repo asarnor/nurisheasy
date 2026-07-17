@@ -8,7 +8,12 @@ import { getCurrentOrganization } from '@/lib/utils/clerk';
 import { acquireOrderLock, releaseOrderLock } from '@/lib/redis';
 import { createPaymentIntent, calculatePlatformFee } from '@/lib/utils/stripe';
 import { shouldUseMockData, getDebugRoleFromRequest } from '@/lib/utils/debug';
-import { createMockOrder, getMockOrders, getMockStore } from '@/lib/mock-data';
+import {
+  createMockOrder,
+  getMockOrders,
+  getMockOrganization,
+  getMockStore,
+} from '@/lib/mock-data';
 import {
   calculateContractEndDate,
   DELIVERY_FEE_CENTS,
@@ -87,6 +92,31 @@ export async function POST(request: NextRequest) {
           { error: 'Platform rule violations', violations },
           { status: 400 },
         );
+      }
+
+      // Facility-level cross-contact hard block (parity with menus/vendors listing)
+      const consumer = getMockOrganization('consumer');
+      const criticalAllergens = consumer?.safetyProfile?.criticalAllergens || [];
+      const blockFacility = Boolean(
+        (consumer?.safetyProfile as any)?.blockFacilityCrossContact
+      );
+      if (blockFacility && criticalAllergens.length) {
+        for (const item of validatedData.items) {
+          const menuItem = store.menuItems.find((m) => m.id === item.menuItemId);
+          if (!menuItem) continue;
+          const vendor = store.organizations.vendors.find((v) => v.id === menuItem.vendorId);
+          const facility: string[] =
+            (vendor?.vendorSettings as any)?.facilityAllergensHandled || [];
+          const overlapping = facility.filter((tag) => criticalAllergens.includes(tag));
+          if (overlapping.length > 0) {
+            return NextResponse.json(
+              {
+                error: `SAFETY BLOCK: Vendor "${vendor?.name || menuItem.vendorId}" handles facility allergens (${overlapping.join(', ')}) that conflict with your critical allergens`,
+              },
+              { status: 400 }
+            );
+          }
+        }
       }
 
       const order = createMockOrder(
@@ -223,6 +253,30 @@ export async function POST(request: NextRequest) {
         }
         vendorGroups.get(vendorId)!.push(item);
         vendorById.set(vendorId, menuItem.vendorId);
+      }
+
+      // Facility-level cross-contact hard block (parity with menus/vendors listing)
+      const criticalAllergens = organization.safetyProfile?.criticalAllergens || [];
+      const blockFacility = Boolean(
+        (organization.safetyProfile as any).blockFacilityCrossContact
+      );
+      if (blockFacility && criticalAllergens.length) {
+        for (const [vendorId, vendor] of vendorById) {
+          const facility: string[] =
+            (vendor?.vendorSettings as any)?.facilityAllergensHandled || [];
+          const overlapping = facility.filter((tag: string) =>
+            criticalAllergens.includes(tag)
+          );
+          if (overlapping.length > 0) {
+            await releaseOrderLock(organization._id.toString());
+            return NextResponse.json(
+              {
+                error: `SAFETY BLOCK: Vendor "${vendor?.name || vendorId}" handles facility allergens (${overlapping.join(', ')}) that conflict with your critical allergens`,
+              },
+              { status: 400 }
+            );
+          }
+        }
       }
 
       const isContractLike = Boolean(validatedData.contract);
