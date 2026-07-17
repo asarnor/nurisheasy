@@ -32,13 +32,53 @@ interface MenuItem {
   displayImageUrl?: string;
   mealCategories?: MealCategory[];
   category?: string;
+  lastVerifiedAt?: string | null;
+  lastAttestedAt?: string | null;
+  lastAttestedBy?: string | null;
+  allergenAttestation?: {
+    confirmedTags: string[];
+    confirmedAbsentTags: string[];
+    attestedBy: string;
+    attestedAt: string | null;
+  } | null;
 }
+
+const ALL_ALLERGENS = [
+  'PEANUT',
+  'TREE_NUT',
+  'SHELLFISH',
+  'FISH',
+  'EGG',
+  'DAIRY',
+  'SOY',
+  'WHEAT',
+  'GLUTEN',
+  'SESAME',
+];
+
+const STALE_HOURS = 24;
+
+const hoursSince = (iso?: string | null) => {
+  if (!iso) return null;
+  const ms = Date.now() - new Date(iso).getTime();
+  if (Number.isNaN(ms)) return null;
+  return ms / (1000 * 60 * 60);
+};
+
+const isStale = (item: MenuItem) => {
+  const age = hoursSince(item.lastVerifiedAt);
+  return age === null || age > STALE_HOURS;
+};
 
 export default function MenuEditorPage() {
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [menuView, setMenuView] = useState<MealPeriodView>('all');
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null);
+  const [attestationConfirmed, setAttestationConfirmed] = useState<
+    Record<string, 'present' | 'absent' | null>
+  >({});
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -60,6 +100,15 @@ export default function MenuEditorPage() {
     mealCategories: [...DEFAULT_MEAL_CATEGORIES] as MealCategory[],
     isAvailable: true,
   });
+
+  const emptyAttestation = () =>
+    ALL_ALLERGENS.reduce<Record<string, 'present' | 'absent' | null>>(
+      (acc, allergen) => {
+        acc[allergen] = null;
+        return acc;
+      },
+      {}
+    );
 
   useEffect(() => {
     fetchMenuItems();

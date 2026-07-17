@@ -3,6 +3,7 @@ import { z } from 'zod';
 import connectDB from '@/lib/mongodb';
 import MenuItem from '@/lib/models/menu.model';
 import { getCurrentOrganization } from '@/lib/utils/clerk';
+import { auth } from '@clerk/nextjs/server';
 import { shouldUseMockData, getDebugRoleFromRequest } from '@/lib/utils/debug';
 import { deleteMockMenuItem, getMockMenuItemById, getMockVendorId, updateMockMenuItem } from '@/lib/mock-data';
 import {
@@ -12,6 +13,80 @@ import {
 import { normalizeMealCategoriesInput } from '@/lib/meal-categories';
 
 const mealCategorySchema = z.enum(['breakfast', 'lunch', 'dinner']);
+
+const allergenAttestationSchema = z.object({
+  confirmedTags: z.array(z.string()).default([]),
+  confirmedAbsentTags: z.array(z.string()).default([]),
+  attestedBy: z.string().optional(),
+});
+
+// If the vendor supplied new allergenTags or an attestation block we require
+// each currently-marked tag to be re-confirmed. Partial updates (e.g. toggling
+// availability) don't require attestation.
+function checkAttestationConsistency(
+  nextAllergenTags: string[] | undefined,
+  attestation: { confirmedTags: string[]; confirmedAbsentTags: string[] } | undefined,
+  existingAllergenTags: string[]
+) {
+  const touchesAllergens = nextAllergenTags !== undefined || attestation !== undefined;
+  if (!touchesAllergens) return null;
+
+  const present = nextAllergenTags ?? existingAllergenTags ?? [];
+  const confirmed = attestation?.confirmedTags || [];
+  const missing = present.filter((tag) => !confirmed.includes(tag));
+  if (missing.length > 0) {
+    return NextResponse.json(
+      {
+        error: `Attestation required for allergens: ${missing.join(', ')}. Confirm each tag on the item.`,
+      },
+      { status: 400 }
+    );
+  }
+  return null;
+}
+
+function buildAttestationPatch(
+  validatedData: {
+    allergenTags?: string[];
+    allergenAttestation?: {
+      confirmedTags: string[];
+      confirmedAbsentTags: string[];
+      attestedBy?: string;
+    };
+  },
+  attesterFallback: string
+): {
+  allergenAttestation?: {
+    confirmedTags: string[];
+    confirmedAbsentTags: string[];
+    attestedBy: string;
+    attestedAt: Date;
+  };
+  lastAttestedAt?: Date;
+  lastAttestedBy?: string;
+} {
+  if (
+    validatedData.allergenAttestation === undefined &&
+    validatedData.allergenTags === undefined
+  ) {
+    return {};
+  }
+  const now = new Date();
+  const attesterId =
+    validatedData.allergenAttestation?.attestedBy || attesterFallback;
+  const attestation = {
+    confirmedTags: validatedData.allergenAttestation?.confirmedTags || [],
+    confirmedAbsentTags:
+      validatedData.allergenAttestation?.confirmedAbsentTags || [],
+    attestedBy: attesterId,
+    attestedAt: now,
+  };
+  return {
+    allergenAttestation: attestation,
+    lastAttestedAt: now,
+    lastAttestedBy: attesterId,
+  };
+}
 
 const updateMenuItemSchema = z.object({
   name: z.string().optional(),
@@ -26,6 +101,7 @@ const updateMenuItemSchema = z.object({
   stockQuantity: z.number().int().min(0).nullable().optional(),
   servingSizeOz: z.number().min(0).nullable().optional(),
   maxPortionsPerOrder: z.number().int().min(1).nullable().optional(),
+  allergenAttestation: allergenAttestationSchema.optional(),
 });
 
 /**
@@ -58,9 +134,37 @@ export async function PATCH(
         );
       }
 
+      const attestationCheck = checkAttestationConsistency(
+        validatedData.allergenTags,
+        validatedData.allergenAttestation,
+        existing.allergenTags
+      );
+      if (attestationCheck) return attestationCheck;
+
+      const attestationPatch = buildAttestationPatch(
+        validatedData,
+        'debug-vendor'
+      );
+      const mockAttestationPatch = attestationPatch.allergenAttestation
+        ? {
+            allergenAttestation: {
+              confirmedTags: attestationPatch.allergenAttestation.confirmedTags,
+              confirmedAbsentTags:
+                attestationPatch.allergenAttestation.confirmedAbsentTags,
+              attestedBy: attestationPatch.allergenAttestation.attestedBy,
+              attestedAt:
+                attestationPatch.allergenAttestation.attestedAt.toISOString(),
+            },
+            lastAttestedAt: attestationPatch.lastAttestedAt!.toISOString(),
+            lastAttestedBy: attestationPatch.lastAttestedBy!,
+          }
+        : {};
+
       const nextImageUrl = maybeRefreshGeneratedImage(existing, validatedData);
+      const { allergenAttestation: _ignoreAttestation, ...restValidated } =
+        validatedData;
       const menuItem = updateMockMenuItem(params.menuId, {
-        ...validatedData,
+        ...restValidated,
         vendorId,
         ...(validatedData.mealCategories
           ? {
@@ -68,6 +172,8 @@ export async function PATCH(
             }
           : {}),
         ...(nextImageUrl !== undefined ? { imageUrl: nextImageUrl } : {}),
+        ...mockAttestationPatch,
+        lastVerifiedAt: new Date().toISOString(),
       });
 
       if (!menuItem) {
@@ -116,6 +222,13 @@ export async function PATCH(
       );
     }
 
+    const attestationCheck = checkAttestationConsistency(
+      validatedData.allergenTags,
+      validatedData.allergenAttestation,
+      menuItem.allergenTags || []
+    );
+    if (attestationCheck) return attestationCheck;
+
     const nextImageUrl = maybeRefreshGeneratedImage(
       {
         id: menuItem._id.toString(),
@@ -129,8 +242,9 @@ export async function PATCH(
       validatedData
     );
 
-    // Update fields
-    Object.assign(menuItem, validatedData);
+    const { allergenAttestation: _ignoreAttestation, ...restValidated } =
+      validatedData;
+    Object.assign(menuItem, restValidated);
     if (validatedData.mealCategories) {
       menuItem.mealCategories = normalizeMealCategoriesInput(validatedData.mealCategories);
     }
@@ -138,7 +252,16 @@ export async function PATCH(
       menuItem.imageUrl = nextImageUrl;
     }
     menuItem.lastVerifiedAt = new Date();
-    
+
+    const { userId } = await auth();
+    const attesterId = userId || organization.name || 'vendor';
+    const attestationPatch = buildAttestationPatch(validatedData, attesterId);
+    if (attestationPatch.allergenAttestation) {
+      menuItem.allergenAttestation = attestationPatch.allergenAttestation as any;
+      menuItem.lastAttestedAt = attestationPatch.lastAttestedAt;
+      menuItem.lastAttestedBy = attestationPatch.lastAttestedBy;
+    }
+
     await menuItem.save();
 
     const formatted = {
@@ -155,6 +278,18 @@ export async function PATCH(
       stockQuantity: menuItem.stockQuantity ?? null,
       servingSizeOz: menuItem.servingSizeOz ?? null,
       maxPortionsPerOrder: menuItem.maxPortionsPerOrder ?? null,
+      lastVerifiedAt: menuItem.lastVerifiedAt || null,
+      lastAttestedAt: menuItem.lastAttestedAt || null,
+      lastAttestedBy: menuItem.lastAttestedBy || null,
+      allergenAttestation: menuItem.allergenAttestation
+        ? {
+            confirmedTags: menuItem.allergenAttestation.confirmedTags || [],
+            confirmedAbsentTags:
+              menuItem.allergenAttestation.confirmedAbsentTags || [],
+            attestedBy: menuItem.allergenAttestation.attestedBy || '',
+            attestedAt: menuItem.allergenAttestation.attestedAt || null,
+          }
+        : null,
     };
 
     return NextResponse.json({

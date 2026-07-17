@@ -42,8 +42,27 @@ const vendorSettingsSchema = z.object({
       autoAcceptOrders: z.boolean().optional(),
       kdsSoundEnabled: z.boolean().optional(),
       certifications: z.array(z.string()).optional(),
+      certificationsReviewStatus: z
+        .enum(['pending', 'approved', 'rejected'])
+        .optional(),
       allergenPolicyNotes: z.string().optional(),
       ingredientSourcingNotes: z.string().optional(),
+      facilityAllergensHandled: z
+        .array(
+          z.enum([
+            'PEANUT',
+            'TREE_NUT',
+            'SHELLFISH',
+            'FISH',
+            'EGG',
+            'DAIRY',
+            'SOY',
+            'WHEAT',
+            'GLUTEN',
+            'SESAME',
+          ])
+        )
+        .optional(),
       offeredContractDurations: z
         .array(z.union([z.literal(3), z.literal(6), z.literal(9), z.literal(12)]))
         .optional(),

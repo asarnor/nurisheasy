@@ -51,6 +51,13 @@ export interface MockOrganization {
   onboardingCompletedAt?: string;
 }
 
+export interface MockAllergenAttestation {
+  confirmedTags: string[];
+  confirmedAbsentTags: string[];
+  attestedBy: string;
+  attestedAt: string;
+}
+
 export interface MockMenuItem {
   id: string;
   vendorId: string;
@@ -67,6 +74,10 @@ export interface MockMenuItem {
   stockQuantity?: number | null;
   servingSizeOz?: number | null;
   maxPortionsPerOrder?: number | null;
+  lastVerifiedAt?: string;
+  allergenAttestation?: MockAllergenAttestation;
+  lastAttestedAt?: string;
+  lastAttestedBy?: string;
 }
 
 export interface MockOrderItem {
@@ -74,6 +85,21 @@ export interface MockOrderItem {
   name: string;
   quantity: number;
   price: number;
+  allergenTags?: string[];
+  allergenAttestedAt?: string;
+}
+
+export type MockSubOrderDeclineReason =
+  | 'out_of_stock'
+  | 'closed'
+  | 'capacity'
+  | 'other'
+  | 'auto_expired';
+
+export interface MockAcceptanceEscalation {
+  smsSentAt?: string;
+  voiceSentAt?: string;
+  expiredAt?: string;
 }
 
 export interface MockSubOrder {
@@ -91,6 +117,42 @@ export interface MockSubOrder {
   vendorTotal: number;
   acceptedAt?: string;
   estimatedReadyAt?: string;
+  autoAccepted?: boolean;
+  declineReason?: MockSubOrderDeclineReason;
+  declineNote?: string;
+  declinedAt?: string;
+  acceptanceEscalation?: MockAcceptanceEscalation;
+}
+
+export interface MockContract {
+  _id: string;
+  consumerId: string;
+  vendorId: string;
+  durationMonths: 3 | 6 | 9 | 12;
+  startDate: string;
+  endDate: string;
+  preparationDayOfWeek: number;
+  mealPeriods: ('breakfast' | 'lunch' | 'dinner')[];
+  fulfillmentMethod: 'pickup' | 'delivery';
+  pricingTerms: {
+    platformFeePercent: number;
+    minimumOrderCents: number;
+    contractFeeCents: number;
+  };
+  status: 'DRAFT' | 'ACTIVE' | 'PAUSED' | 'ENDED' | 'CANCELLED';
+  items?: Array<{
+    menuItemId: string;
+    name: string;
+    quantity: number;
+    price: number;
+  }>;
+  lastGeneratedPrepDate?: string;
+}
+
+export interface MockOrderDeliveryDetails {
+  preparationDayOfWeek?: number;
+  mealPeriods?: ('breakfast' | 'lunch' | 'dinner')[];
+  fulfillmentMethod?: 'pickup' | 'delivery';
 }
 
 export interface MockOrder {
@@ -105,13 +167,14 @@ export interface MockOrder {
     _id: string;
     name: string;
   };
-  contractDurationMonths?: 3 | 6 | 9 | 12;
-  preparationDayOfWeek?: number;
-  mealPeriods?: ('breakfast' | 'lunch' | 'dinner')[];
-  fulfillmentMethod?: 'pickup' | 'delivery';
+  // Recurring contract this delivery belongs to (undefined = one-off order)
+  contractId?: string;
+  // Populated view of the Contract for UI (server-side "populate" analog)
+  contract?: MockContract;
+  // Per-delivery fee stays on the Order
   deliveryFeeCents?: number;
-  contractStartDate?: string;
-  contractEndDate?: string;
+  // Per-delivery preferences (one-off orders / overrides)
+  deliveryDetails?: MockOrderDeliveryDetails;
 }
 
 export interface MockReview {
@@ -151,6 +214,7 @@ export interface MockStore {
   };
   menuItems: MockMenuItem[];
   orders: MockOrder[];
+  contracts: MockContract[];
   reviews: MockReview[];
   issues: MockIssue[];
   users: MockUser[];
@@ -244,12 +308,23 @@ const createMockStore = (): MockStore => {
         orderCutoffTime: '19:00',
         defaultPrepTimeMinutes: 50,
         certifications: ['HALAL'],
+        certificationsReviewStatus: 'pending',
+        allergenPolicyNotes:
+          'Shared kitchen — sesame, tree nut, and wheat are handled on premises daily.',
+        facilityAllergensHandled: ['SESAME', 'TREE_NUT', 'WHEAT'],
         minimumOrderCents: 3000,
         offeredContractDurations: [6, 9, 12],
         acceptingNewContracts: true,
       },
     },
   ];
+
+  // Attach approved cert review + baseline facility disclosure to Momma's
+  vendors[0].vendorSettings = {
+    ...vendors[0].vendorSettings,
+    certificationsReviewStatus: 'approved',
+    facilityAllergensHandled: ['DAIRY', 'EGG', 'WHEAT', 'GLUTEN'],
+  };
 
   const consumer: MockOrganization = {
     id: 'consumer_tommys',
@@ -517,6 +592,21 @@ const createMockStore = (): MockStore => {
     },
   ];
 
+  // Seed fresh verification + attestation timestamps on all mock menu items
+  const attestationIso = new Date(now - 1000 * 60 * 60 * 2).toISOString();
+  menuItems.forEach((item) => {
+    item.lastVerifiedAt = item.lastVerifiedAt || attestationIso;
+    item.allergenAttestation =
+      item.allergenAttestation || {
+        confirmedTags: [...item.allergenTags],
+        confirmedAbsentTags: [],
+        attestedBy: 'mock-vendor',
+        attestedAt: attestationIso,
+      };
+    item.lastAttestedAt = item.lastAttestedAt || attestationIso;
+    item.lastAttestedBy = item.lastAttestedBy || 'mock-vendor';
+  });
+
   // Breakfast order — Tommy's orders 20 servings for morning
   const breakfastOrder = withTotal([
     { menuItemId: 'menu_mommas_b1', name: 'Farm Fresh Scrambled Eggs & Toast', quantity: 10, price: 799 },
@@ -544,6 +634,76 @@ const createMockStore = (): MockStore => {
     { menuItemId: 'menu_mommas_d4', name: 'Vegetarian Pasta Primavera', quantity: 10, price: 1199 },
   ]);
 
+  const buildMockContract = (
+    id: string,
+    input: {
+      vendorId: string;
+      durationMonths: 3 | 6 | 9 | 12;
+      preparationDayOfWeek: number;
+      mealPeriods: ('breakfast' | 'lunch' | 'dinner')[];
+      fulfillmentMethod: 'pickup' | 'delivery';
+      startDate: Date;
+      items?: MockContract['items'];
+    }
+  ): MockContract => ({
+    _id: id,
+    consumerId: consumer.id,
+    vendorId: input.vendorId,
+    durationMonths: input.durationMonths,
+    startDate: input.startDate.toISOString(),
+    endDate: calculateContractEndDate(input.startDate, input.durationMonths).toISOString(),
+    preparationDayOfWeek: input.preparationDayOfWeek,
+    mealPeriods: input.mealPeriods,
+    fulfillmentMethod: input.fulfillmentMethod,
+    pricingTerms: {
+      platformFeePercent: 10,
+      minimumOrderCents: 2000,
+      contractFeeCents: 0,
+    },
+    status: 'ACTIVE',
+    items: input.items,
+    lastGeneratedPrepDate: input.startDate.toISOString(),
+  });
+
+  const contracts: MockContract[] = [
+    buildMockContract('contract_mock_1001', {
+      vendorId: vendors[0].id,
+      durationMonths: 6,
+      preparationDayOfWeek: 1,
+      mealPeriods: ['breakfast'],
+      fulfillmentMethod: 'pickup',
+      startDate: new Date(now - 1000 * 60 * 60 * 24 * 30),
+      items: breakfastOrder.items.map((item) => ({ ...item })),
+    }),
+    buildMockContract('contract_mock_1002', {
+      vendorId: vendors[0].id,
+      durationMonths: 6,
+      preparationDayOfWeek: 3,
+      mealPeriods: ['lunch'],
+      fulfillmentMethod: 'delivery',
+      startDate: new Date(now - 1000 * 60 * 60 * 24 * 45),
+      items: lunchOrder.items.map((item) => ({ ...item })),
+    }),
+    buildMockContract('contract_mock_1003', {
+      vendorId: vendors[0].id,
+      durationMonths: 12,
+      preparationDayOfWeek: 5,
+      mealPeriods: ['dinner'],
+      fulfillmentMethod: 'pickup',
+      startDate: new Date(now - 1000 * 60 * 60 * 24 * 90),
+      items: dinnerOrder.items.map((item) => ({ ...item })),
+    }),
+    buildMockContract('contract_mock_1004', {
+      vendorId: vendors[0].id,
+      durationMonths: 12,
+      preparationDayOfWeek: 5,
+      mealPeriods: ['dinner'],
+      fulfillmentMethod: 'delivery',
+      startDate: new Date(now - 1000 * 60 * 60 * 24 * 120),
+      items: pastDinnerOrder.items.map((item) => ({ ...item })),
+    }),
+  ];
+
   const orders: MockOrder[] = [
     {
       _id: 'order_mock_1001',
@@ -553,13 +713,8 @@ const createMockStore = (): MockStore => {
       platformFee: Math.round(breakfastOrder.vendorTotal * 0.1),
       createdAt: new Date(now - 1000 * 60 * 25).toISOString(),
       consumerId: { _id: consumer.id, name: consumer.name },
-      contractDurationMonths: 6,
-      preparationDayOfWeek: 1,
-      mealPeriods: ['breakfast'],
-      fulfillmentMethod: 'pickup',
+      contractId: 'contract_mock_1001',
       deliveryFeeCents: 0,
-      contractStartDate: new Date(now - 1000 * 60 * 60 * 24 * 30).toISOString(),
-      contractEndDate: calculateContractEndDate(new Date(now - 1000 * 60 * 60 * 24 * 30), 6).toISOString(),
       subOrders: [
         {
           vendorId: vendors[0].id,
@@ -578,13 +733,8 @@ const createMockStore = (): MockStore => {
       platformFee: Math.round((lunchOrder.vendorTotal + DELIVERY_FEE_CENTS) * 0.1),
       createdAt: new Date(now - 1000 * 60 * 120).toISOString(),
       consumerId: { _id: consumer.id, name: consumer.name },
-      contractDurationMonths: 6,
-      preparationDayOfWeek: 3,
-      mealPeriods: ['lunch'],
-      fulfillmentMethod: 'delivery',
+      contractId: 'contract_mock_1002',
       deliveryFeeCents: DELIVERY_FEE_CENTS,
-      contractStartDate: new Date(now - 1000 * 60 * 60 * 24 * 45).toISOString(),
-      contractEndDate: calculateContractEndDate(new Date(now - 1000 * 60 * 60 * 24 * 45), 6).toISOString(),
       subOrders: [
         {
           vendorId: vendors[0].id,
@@ -604,13 +754,8 @@ const createMockStore = (): MockStore => {
       platformFee: Math.round(dinnerOrder.vendorTotal * 0.1),
       createdAt: new Date(now - 1000 * 60 * 260).toISOString(),
       consumerId: { _id: consumer.id, name: consumer.name },
-      contractDurationMonths: 12,
-      preparationDayOfWeek: 5,
-      mealPeriods: ['dinner'],
-      fulfillmentMethod: 'pickup',
+      contractId: 'contract_mock_1003',
       deliveryFeeCents: 0,
-      contractStartDate: new Date(now - 1000 * 60 * 60 * 24 * 90).toISOString(),
-      contractEndDate: calculateContractEndDate(new Date(now - 1000 * 60 * 60 * 24 * 90), 12).toISOString(),
       subOrders: [
         {
           vendorId: vendors[0].id,
@@ -631,13 +776,8 @@ const createMockStore = (): MockStore => {
       platformFee: Math.round((pastDinnerOrder.vendorTotal + DELIVERY_FEE_CENTS) * 0.1),
       createdAt: new Date(now - 1000 * 60 * 900).toISOString(),
       consumerId: { _id: consumer.id, name: consumer.name },
-      contractDurationMonths: 12,
-      preparationDayOfWeek: 5,
-      mealPeriods: ['dinner'],
-      fulfillmentMethod: 'delivery',
+      contractId: 'contract_mock_1004',
       deliveryFeeCents: DELIVERY_FEE_CENTS,
-      contractStartDate: new Date(now - 1000 * 60 * 60 * 24 * 120).toISOString(),
-      contractEndDate: calculateContractEndDate(new Date(now - 1000 * 60 * 60 * 24 * 120), 12).toISOString(),
       subOrders: [
         {
           vendorId: vendors[0].id,
@@ -708,6 +848,7 @@ const createMockStore = (): MockStore => {
     },
     menuItems,
     orders,
+    contracts,
     reviews,
     issues,
     users,
@@ -727,6 +868,9 @@ export const getMockStore = () => {
   const store = globalThis.__SAFEPLATE_MOCK_STORE__;
   if (!store.reviews) {
     store.reviews = createMockStore().reviews;
+  }
+  if (!store.contracts) {
+    store.contracts = createMockStore().contracts;
   }
 
   store.organizations.vendors.forEach((vendor) => {
@@ -791,6 +935,8 @@ export const createMockMenuItem = (vendorId: string, payload: Partial<MockMenuIt
   const vendor = store.organizations.vendors.find((item) => item.id === vendorId);
   if (!vendor) return null;
 
+  const nowIso = new Date().toISOString();
+
   const draft: MockMenuItem = {
     id: `menu_mock_${Date.now()}`,
     vendorId: vendor.id,
@@ -804,6 +950,10 @@ export const createMockMenuItem = (vendorId: string, payload: Partial<MockMenuIt
     imageUrl: payload.imageUrl,
     mealCategories: normalizeMealCategoriesInput(payload.mealCategories),
     category: payload.category,
+    lastVerifiedAt: payload.lastVerifiedAt || nowIso,
+    allergenAttestation: payload.allergenAttestation,
+    lastAttestedAt: payload.lastAttestedAt || payload.allergenAttestation?.attestedAt,
+    lastAttestedBy: payload.lastAttestedBy || payload.allergenAttestation?.attestedBy,
   };
 
   const newItem = assignGeneratedImageIfNeeded(draft, draft.id);
@@ -833,70 +983,86 @@ export const deleteMockMenuItem = (menuId: string) => {
   return store.menuItems.length !== initialLength;
 };
 
-const MOCK_ORDER_CONTRACT_DEFAULTS: Record<
-  string,
-  Pick<
-    MockOrder,
-    | 'contractDurationMonths'
-    | 'preparationDayOfWeek'
-    | 'mealPeriods'
-    | 'fulfillmentMethod'
-    | 'deliveryFeeCents'
-    | 'contractStartDate'
-    | 'contractEndDate'
-  >
-> = {
-  order_mock_1001: {
-    contractDurationMonths: 6,
-    preparationDayOfWeek: 1,
-    mealPeriods: ['breakfast'],
-    fulfillmentMethod: 'pickup',
-    deliveryFeeCents: 0,
-  },
-  order_mock_1002: {
-    contractDurationMonths: 6,
-    preparationDayOfWeek: 3,
-    mealPeriods: ['lunch'],
-    fulfillmentMethod: 'delivery',
-    deliveryFeeCents: DELIVERY_FEE_CENTS,
-  },
-  order_mock_1003: {
-    contractDurationMonths: 12,
-    preparationDayOfWeek: 5,
-    mealPeriods: ['dinner'],
-    fulfillmentMethod: 'pickup',
-    deliveryFeeCents: 0,
-  },
-  order_mock_1004: {
-    contractDurationMonths: 12,
-    preparationDayOfWeek: 5,
-    mealPeriods: ['dinner'],
-    fulfillmentMethod: 'delivery',
-    deliveryFeeCents: DELIVERY_FEE_CENTS,
-  },
+/**
+ * Populate the `contract` field on a MockOrder from `contractId` — server-side
+ * `populate('contractId')` analog for the mock store.
+ */
+const enrichMockOrderContract = (order: MockOrder): MockOrder => {
+  if (!order.contractId) return order;
+  if (order.contract && order.contract._id === order.contractId) return order;
+
+  const store = getMockStore();
+  const contract = store.contracts.find((entry) => entry._id === order.contractId);
+  if (!contract) return order;
+
+  return { ...order, contract };
 };
 
-const enrichMockOrderContract = (order: MockOrder): MockOrder => {
-  if (order.contractDurationMonths) return order;
+/** List all contracts, optionally scoped by consumer / vendor / status. */
+export const getMockContracts = (filters?: {
+  consumerId?: string;
+  vendorId?: string;
+  status?: MockContract['status'];
+}) => {
+  const store = getMockStore();
+  return store.contracts.filter((contract) => {
+    if (filters?.consumerId && contract.consumerId !== filters.consumerId) return false;
+    if (filters?.vendorId && contract.vendorId !== filters.vendorId) return false;
+    if (filters?.status && contract.status !== filters.status) return false;
+    return true;
+  });
+};
 
-  const defaults = MOCK_ORDER_CONTRACT_DEFAULTS[order._id];
-  const contractDurationMonths = defaults?.contractDurationMonths ?? 3;
-  const contractStartDate = order.createdAt;
-  const contractEndDate = calculateContractEndDate(
-    new Date(contractStartDate),
-    contractDurationMonths
-  ).toISOString();
+/**
+ * Find an ACTIVE contract with matching terms for the (consumer, vendor) pair,
+ * or create a new one and add it to the mock store.
+ */
+export const upsertMockContract = (input: {
+  consumerId: string;
+  vendorId: string;
+  durationMonths: 3 | 6 | 9 | 12;
+  preparationDayOfWeek: number;
+  mealPeriods: ('breakfast' | 'lunch' | 'dinner')[];
+  fulfillmentMethod: 'pickup' | 'delivery';
+  items?: MockContract['items'];
+  pricingTerms?: Partial<MockContract['pricingTerms']>;
+}): MockContract => {
+  const store = getMockStore();
+  const existing = store.contracts.find(
+    (contract) =>
+      contract.consumerId === input.consumerId &&
+      contract.vendorId === input.vendorId &&
+      contract.status === 'ACTIVE' &&
+      contract.durationMonths === input.durationMonths &&
+      contract.preparationDayOfWeek === input.preparationDayOfWeek &&
+      contract.fulfillmentMethod === input.fulfillmentMethod
+  );
 
-  return {
-    ...order,
-    contractDurationMonths,
-    preparationDayOfWeek: defaults?.preparationDayOfWeek ?? 1,
-    mealPeriods: defaults?.mealPeriods ?? ['dinner'],
-    fulfillmentMethod: defaults?.fulfillmentMethod ?? 'pickup',
-    deliveryFeeCents: defaults?.deliveryFeeCents ?? 0,
-    contractStartDate: defaults?.contractStartDate ?? contractStartDate,
-    contractEndDate: defaults?.contractEndDate ?? contractEndDate,
+  if (existing) return existing;
+
+  const startDate = new Date();
+  const contract: MockContract = {
+    _id: `contract_mock_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+    consumerId: input.consumerId,
+    vendorId: input.vendorId,
+    durationMonths: input.durationMonths,
+    startDate: startDate.toISOString(),
+    endDate: calculateContractEndDate(startDate, input.durationMonths).toISOString(),
+    preparationDayOfWeek: input.preparationDayOfWeek,
+    mealPeriods: input.mealPeriods,
+    fulfillmentMethod: input.fulfillmentMethod,
+    pricingTerms: {
+      platformFeePercent: input.pricingTerms?.platformFeePercent ?? 10,
+      minimumOrderCents: input.pricingTerms?.minimumOrderCents ?? 2000,
+      contractFeeCents: input.pricingTerms?.contractFeeCents ?? 0,
+    },
+    status: 'ACTIVE',
+    items: input.items,
+    lastGeneratedPrepDate: startDate.toISOString(),
   };
+
+  store.contracts.unshift(contract);
+  return contract;
 };
 
 export const getMockOrders = (role: MockRole, options?: { orderId?: string; vendorId?: string }) => {
@@ -949,24 +1115,13 @@ export const createMockOrder = (
       name: menuItem.name,
       quantity,
       price: menuItem.price,
+      allergenTags: [...(menuItem.allergenTags || [])],
+      allergenAttestedAt:
+        menuItem.lastAttestedAt ||
+        menuItem.allergenAttestation?.attestedAt ||
+        menuItem.lastVerifiedAt,
     });
     vendorGroups.set(menuItem.vendorId, group);
-  });
-
-  const subOrders: MockSubOrder[] = [];
-  let totalAmount = 0;
-
-  vendorGroups.forEach((groupItems, vendorId) => {
-    const vendor = store.organizations.vendors.find((entry) => entry.id === vendorId);
-    const vendorTotal = sumItems(groupItems);
-    totalAmount += vendorTotal;
-    subOrders.push({
-      vendorId,
-      vendorName: vendor?.name || 'Vendor',
-      status: 'PENDING',
-      items: groupItems,
-      vendorTotal,
-    });
   });
 
   const contractOptions: OrderContractOptions = {
@@ -976,58 +1131,104 @@ export const createMockOrder = (
       ? contract.mealPeriods
       : DEFAULT_CONTRACT_OPTIONS.mealPeriods,
   };
+  const isContractLike = Boolean(contract && Object.keys(contract).length > 0);
+  const nowIso = new Date().toISOString();
   const deliveryFeeCents =
     contractOptions.fulfillmentMethod === 'delivery' ? DELIVERY_FEE_CENTS : 0;
-  totalAmount += deliveryFeeCents;
 
-  const contractStartDate = new Date();
-  const contractEndDate = calculateContractEndDate(
-    contractStartDate,
-    contractOptions.contractDurationMonths
-  );
+  const createdOrders: MockOrder[] = [];
 
-  const order: MockOrder = {
-    _id: `order_mock_${Date.now()}`,
-    status: 'PROCESSING',
-    paymentIntentId: `pi_mock_${Date.now()}`,
-    totalAmount,
-    platformFee: Math.round(totalAmount * 0.1),
-    createdAt: new Date().toISOString(),
-    consumerId: {
-      _id: store.organizations.consumer.id,
-      name: store.organizations.consumer.name,
-    },
-    contractDurationMonths: contractOptions.contractDurationMonths,
-    preparationDayOfWeek: contractOptions.preparationDayOfWeek,
-    mealPeriods: contractOptions.mealPeriods,
-    fulfillmentMethod: contractOptions.fulfillmentMethod,
-    deliveryFeeCents,
-    contractStartDate: contractStartDate.toISOString(),
-    contractEndDate: contractEndDate.toISOString(),
-    subOrders,
-  };
+  vendorGroups.forEach((groupItems, vendorId) => {
+    const vendor = store.organizations.vendors.find((entry) => entry.id === vendorId);
+    const vendorTotal = sumItems(groupItems);
 
-  store.orders.unshift(order);
-  return order;
+    const autoAccept =
+      isContractLike || vendor?.vendorSettings?.autoAcceptOrders === true;
+
+    const subOrder: MockSubOrder = {
+      vendorId,
+      vendorName: vendor?.name || 'Vendor',
+      status: autoAccept ? 'ACCEPTED' : 'PENDING',
+      items: groupItems,
+      vendorTotal,
+      ...(autoAccept ? { acceptedAt: nowIso, autoAccepted: true } : {}),
+    };
+
+    const orderTotal = vendorTotal + deliveryFeeCents;
+    const anyPending = subOrder.status === 'PENDING';
+
+    let contractDoc: MockContract | undefined;
+    if (isContractLike) {
+      contractDoc = upsertMockContract({
+        consumerId: store.organizations.consumer.id,
+        vendorId,
+        durationMonths: contractOptions.contractDurationMonths,
+        preparationDayOfWeek: contractOptions.preparationDayOfWeek,
+        mealPeriods: contractOptions.mealPeriods,
+        fulfillmentMethod: contractOptions.fulfillmentMethod,
+        items: groupItems.map((item) => ({
+          menuItemId: item.menuItemId,
+          name: item.name,
+          quantity: item.quantity,
+          price: item.price,
+        })),
+      });
+    }
+
+    const order: MockOrder = {
+      _id: `order_mock_${Date.now()}_${vendorId.slice(-6)}`,
+      status: anyPending ? 'PROCESSING' : 'CONFIRMED',
+      paymentIntentId: `pi_mock_${Date.now()}_${vendorId.slice(-6)}`,
+      totalAmount: orderTotal,
+      platformFee: Math.round(orderTotal * 0.1),
+      createdAt: new Date().toISOString(),
+      consumerId: {
+        _id: store.organizations.consumer.id,
+        name: store.organizations.consumer.name,
+      },
+      contractId: contractDoc?._id,
+      contract: contractDoc,
+      deliveryFeeCents,
+      subOrders: [subOrder],
+      ...(isContractLike
+        ? {}
+        : {
+            deliveryDetails: {
+              preparationDayOfWeek: contractOptions.preparationDayOfWeek,
+              mealPeriods: contractOptions.mealPeriods,
+              fulfillmentMethod: contractOptions.fulfillmentMethod,
+            },
+          }),
+    };
+
+    store.orders.unshift(order);
+    createdOrders.push(order);
+  });
+
+  if (createdOrders.length === 0) return null;
+  // Preserve legacy single-order return shape for callers.
+  return createdOrders[0];
 };
 
 const updateOrderStatusFromSubOrders = (order: MockOrder) => {
-  if (order.subOrders.every((subOrder) => subOrder.status === 'DELIVERED')) {
+  const subs = order.subOrders;
+
+  if (subs.every((subOrder) => subOrder.status === 'DELIVERED')) {
     order.status = 'FULFILLED';
     return;
   }
 
-  if (order.subOrders.some((subOrder) => subOrder.status === 'REFUNDED')) {
-    order.status = 'REFUNDED';
-    return;
-  }
-
-  if (order.subOrders.some((subOrder) => subOrder.status === 'CANCELLED')) {
+  if (subs.every((subOrder) => subOrder.status === 'CANCELLED')) {
     order.status = 'CANCELLED';
     return;
   }
 
-  if (order.subOrders.every((subOrder) => subOrder.status !== 'PENDING')) {
+  if (subs.every((subOrder) => subOrder.status === 'REFUNDED')) {
+    order.status = 'REFUNDED';
+    return;
+  }
+
+  if (subs.every((subOrder) => subOrder.status !== 'PENDING')) {
     order.status = 'CONFIRMED';
     return;
   }
@@ -1075,6 +1276,89 @@ export const updateMockSubOrderStatus = (
   }
 
   updateOrderStatusFromSubOrders(order);
+  return order;
+};
+
+export const declineMockSubOrder = (
+  orderId: string,
+  vendorId: string,
+  reason: MockSubOrderDeclineReason,
+  note?: string
+) => {
+  const store = getMockStore();
+  const order = store.orders.find((entry) => entry._id === orderId);
+  if (!order) return null;
+
+  const subOrder = order.subOrders.find((entry) => entry.vendorId === vendorId);
+  if (!subOrder) return null;
+
+  if (subOrder.status !== 'PENDING') {
+    return { error: `Cannot decline sub-order in status ${subOrder.status}` };
+  }
+
+  subOrder.status = 'CANCELLED';
+  subOrder.declineReason = reason;
+  subOrder.declineNote = note;
+  subOrder.declinedAt = new Date().toISOString();
+
+  updateOrderStatusFromSubOrders(order);
+  return order;
+};
+
+export const resolveMockPartialOrder = (
+  orderId: string,
+  action: 'proceed' | 'cancel_all'
+) => {
+  const store = getMockStore();
+  const order = store.orders.find((entry) => entry._id === orderId);
+  if (!order) return null;
+
+  if (action === 'cancel_all') {
+    order.subOrders.forEach((so) => {
+      if (so.status === 'PENDING' || so.status === 'ACCEPTED') {
+        so.status = 'CANCELLED';
+      }
+    });
+    order.status = 'CANCELLED';
+    return order;
+  }
+
+  const remainingPending = order.subOrders.some((so) => so.status === 'PENDING');
+  if (remainingPending) {
+    return { error: 'Cannot proceed — some sub-orders are still pending vendor acceptance' };
+  }
+
+  const hasAccepted = order.subOrders.some((so) => so.status === 'ACCEPTED');
+  if (!hasAccepted) {
+    order.status = 'CANCELLED';
+    return order;
+  }
+
+  updateOrderStatusFromSubOrders(order);
+  return order;
+};
+
+export const escalateMockSubOrder = (
+  orderId: string,
+  vendorId: string,
+  stage: 'sms' | 'voice' | 'expire'
+) => {
+  const store = getMockStore();
+  const order = store.orders.find((entry) => entry._id === orderId);
+  if (!order) return null;
+  const subOrder = order.subOrders.find((entry) => entry.vendorId === vendorId);
+  if (!subOrder) return null;
+  const now = new Date().toISOString();
+  subOrder.acceptanceEscalation = subOrder.acceptanceEscalation || {};
+  if (stage === 'sms') subOrder.acceptanceEscalation.smsSentAt = now;
+  if (stage === 'voice') subOrder.acceptanceEscalation.voiceSentAt = now;
+  if (stage === 'expire') {
+    subOrder.acceptanceEscalation.expiredAt = now;
+    subOrder.status = 'CANCELLED';
+    subOrder.declineReason = 'auto_expired';
+    subOrder.declinedAt = now;
+    updateOrderStatusFromSubOrders(order);
+  }
   return order;
 };
 

@@ -2,12 +2,19 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import connectDB from '@/lib/mongodb';
 import Order from '@/lib/models/order.model';
+import Contract from '@/lib/models/contract.model';
 import MenuItem from '@/lib/models/menu.model';
 import { getCurrentOrganization } from '@/lib/utils/clerk';
 import { acquireOrderLock, releaseOrderLock } from '@/lib/redis';
 import { createPaymentIntent, calculatePlatformFee } from '@/lib/utils/stripe';
 import { shouldUseMockData, getDebugRoleFromRequest } from '@/lib/utils/debug';
 import { createMockOrder, getMockOrders, getMockStore } from '@/lib/mock-data';
+import {
+  allActiveSubOrdersAccepted,
+  captureAndTransferForOrder,
+  recomputeOrderStatus,
+  shouldAutoAcceptSubOrder,
+} from '@/lib/order-lifecycle';
 import {
   calculateContractEndDate,
   DELIVERY_FEE_CENTS,
@@ -118,14 +125,9 @@ export async function POST(request: NextRequest) {
         totalAmount: order.totalAmount,
         platformFee: order.platformFee,
         deliveryFeeCents: order.deliveryFeeCents,
-        contract: {
-          contractDurationMonths: order.contractDurationMonths,
-          preparationDayOfWeek: order.preparationDayOfWeek,
-          mealPeriods: order.mealPeriods,
-          fulfillmentMethod: order.fulfillmentMethod,
-          contractStartDate: order.contractStartDate,
-          contractEndDate: order.contractEndDate,
-        },
+        contractId: order.contractId,
+        contract: order.contract,
+        deliveryDetails: order.deliveryDetails,
         subOrders: order.subOrders,
       });
     }
@@ -220,25 +222,44 @@ export async function POST(request: NextRequest) {
 
       // Group items by vendor
       const vendorGroups = new Map<string, typeof validatedData.items>();
-      
+      const vendorById = new Map<string, any>();
+
       for (const item of validatedData.items) {
         const menuItem = menuItems.find((mi) => mi._id.toString() === item.menuItemId);
         if (!menuItem) continue;
-        
+
         const vendorId = menuItem.vendorId._id.toString();
         if (!vendorGroups.has(vendorId)) {
           vendorGroups.set(vendorId, []);
         }
         vendorGroups.get(vendorId)!.push(item);
+        vendorById.set(vendorId, menuItem.vendorId);
       }
 
-      // Calculate totals and create sub-orders
-      const subOrders = [];
-      let totalAmount = 0;
+      // Determine whether this order is contract-like (auto-accept baseline)
+      const isContractLike = Boolean(validatedData.contract);
+      const now = new Date();
+
+      // Build per-vendor sub-order payloads. When a contract is provided we
+      // split into one Order per vendor below (Order = one delivery from one
+      // Contract). Without a contract we keep a single multi-vendor Order.
+      type VendorPayload = {
+        vendorId: string;
+        vendorName: string;
+        vendorTotal: number;
+        subOrder: any;
+      };
+      const vendorPayloads: VendorPayload[] = [];
+      let combinedTotal = 0;
 
       for (const [vendorId, items] of vendorGroups) {
         let vendorTotal = 0;
-        const subOrderItems = [];
+        const subOrderItems: Array<{
+          menuItemId: any;
+          name: string;
+          quantity: number;
+          price: number;
+        }> = [];
 
         for (const item of items) {
           const menuItem = menuItems.find((mi) => mi._id.toString() === item.menuItemId);
@@ -252,31 +273,45 @@ export async function POST(request: NextRequest) {
             name: menuItem.name,
             quantity: item.quantity,
             price: menuItem.price,
+            allergenTags: [...(menuItem.allergenTags || [])],
+            allergenAttestedAt:
+              menuItem.lastAttestedAt ||
+              menuItem.allergenAttestation?.attestedAt ||
+              menuItem.lastVerifiedAt,
           });
         }
 
-        subOrders.push({
+        const vendor = vendorById.get(vendorId) as any;
+        const autoAccept = shouldAutoAcceptSubOrder(
+          { contractDurationMonths: isContractLike ? 3 : undefined },
+          vendor?.vendorSettings?.autoAcceptOrders
+        );
+
+        vendorPayloads.push({
           vendorId,
-          status: 'PENDING',
-          items: subOrderItems,
+          vendorName: vendor?.name || 'Vendor',
           vendorTotal,
+          subOrder: {
+            vendorId,
+            status: autoAccept ? 'ACCEPTED' : 'PENDING',
+            items: subOrderItems,
+            vendorTotal,
+            ...(autoAccept ? { acceptedAt: now, autoAccepted: true } : {}),
+          },
         });
 
-        totalAmount += vendorTotal;
+        combinedTotal += vendorTotal;
       }
 
-      // Validate order and vendor minimums
-      const vendorSubTotals = subOrders.map((sub) => {
-        const vendor = menuItems.find((mi) => mi.vendorId._id.toString() === sub.vendorId)?.vendorId as any;
-        return {
-          vendorId: sub.vendorId,
-          vendorName: vendor?.name || 'Vendor',
-          total: sub.vendorTotal,
-        };
-      });
+      // Validate order and vendor minimums (against pre-delivery-fee totals)
+      const vendorSubTotals = vendorPayloads.map((v) => ({
+        vendorId: v.vendorId,
+        vendorName: v.vendorName,
+        total: v.vendorTotal,
+      }));
       const minimumViolations = validateOrderMinimums(
         platformRules.contractMinimums,
-        totalAmount,
+        combinedTotal,
         vendorSubTotals,
       );
       if (minimumViolations.length > 0) {
@@ -287,7 +322,6 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      // Use configurable platform fee instead of hardcoded 10%
       const feePercent = platformRules.platformFeePercent ?? 10;
       const contractOptions: OrderContractOptions = {
         ...DEFAULT_CONTRACT_OPTIONS,
@@ -298,38 +332,152 @@ export async function POST(request: NextRequest) {
       };
       const deliveryFeeCents =
         contractOptions.fulfillmentMethod === 'delivery' ? DELIVERY_FEE_CENTS : 0;
-      totalAmount += deliveryFeeCents;
-      const platformFee = Math.round(totalAmount * (feePercent / 100));
       const contractStartDate = new Date();
       const contractEndDate = calculateContractEndDate(
         contractStartDate,
         contractOptions.contractDurationMonths
       );
 
-      // Create payment intent
-      const paymentIntent = await createPaymentIntent(totalAmount, {
-        consumerId: organization._id.toString(),
-        orderType: 'multi_vendor',
-      });
+      const created: Array<{
+        order: any;
+        paymentIntent: any;
+        contract?: any;
+      }> = [];
 
-      // Create order (safety middleware will validate)
-      const order = new Order({
-        consumerId: organization._id,
-        status: 'PROCESSING',
-        paymentIntentId: paymentIntent.id,
-        totalAmount,
-        platformFee,
-        subOrders,
-        contractDurationMonths: contractOptions.contractDurationMonths,
-        preparationDayOfWeek: contractOptions.preparationDayOfWeek,
-        mealPeriods: contractOptions.mealPeriods,
-        fulfillmentMethod: contractOptions.fulfillmentMethod,
-        deliveryFeeCents,
-        contractStartDate,
-        contractEndDate,
-      });
+      if (isContractLike) {
+        // One Contract + one Order per vendor. Each Order gets its own PaymentIntent.
+        for (const payload of vendorPayloads) {
+          const vendor = vendorById.get(payload.vendorId) as any;
+          const vendorMinimumOrderCents =
+            vendor?.vendorSettings?.minimumOrderCents ??
+            platformRules.contractMinimums.minimumVendorSubOrderCents ??
+            0;
 
-      await order.save();
+          // Reuse an existing ACTIVE contract if terms match; else create one.
+          let contract = await Contract.findOne({
+            consumerId: organization._id,
+            vendorId: payload.vendorId,
+            status: 'ACTIVE',
+            durationMonths: contractOptions.contractDurationMonths,
+            preparationDayOfWeek: contractOptions.preparationDayOfWeek,
+            fulfillmentMethod: contractOptions.fulfillmentMethod,
+          });
+
+          if (!contract) {
+            contract = await Contract.create({
+              consumerId: organization._id,
+              vendorId: payload.vendorId,
+              durationMonths: contractOptions.contractDurationMonths,
+              startDate: contractStartDate,
+              endDate: contractEndDate,
+              preparationDayOfWeek: contractOptions.preparationDayOfWeek,
+              mealPeriods: contractOptions.mealPeriods,
+              fulfillmentMethod: contractOptions.fulfillmentMethod,
+              pricingTerms: {
+                platformFeePercent: feePercent,
+                minimumOrderCents: vendorMinimumOrderCents,
+                contractFeeCents: 0,
+              },
+              status: 'ACTIVE',
+              items: payload.subOrder.items.map((item: any) => ({
+                menuItemId: item.menuItemId,
+                name: item.name,
+                quantity: item.quantity,
+                price: item.price,
+              })),
+              lastGeneratedPrepDate: contractStartDate,
+            });
+          }
+
+          const orderTotal = payload.vendorTotal + deliveryFeeCents;
+          const orderPlatformFee = Math.round(orderTotal * (feePercent / 100));
+
+          const paymentIntent = await createPaymentIntent(orderTotal, {
+            consumerId: organization._id.toString(),
+            contractId: contract._id.toString(),
+            vendorId: payload.vendorId,
+            orderType: 'contract_delivery',
+          });
+
+          const order = new Order({
+            consumerId: organization._id,
+            contractId: contract._id,
+            status: 'PROCESSING',
+            paymentIntentId: paymentIntent.id,
+            totalAmount: orderTotal,
+            platformFee: orderPlatformFee,
+            subOrders: [payload.subOrder],
+            deliveryFeeCents,
+          });
+
+          await order.save();
+
+          for (const sub of order.subOrders) {
+            if (sub.status === 'PENDING') {
+              console.log(
+                `[notify:new-order] vendor=${sub.vendorId} order=${order._id} — push/email would fire`
+              );
+            }
+          }
+
+          if (allActiveSubOrdersAccepted(order.subOrders)) {
+            try {
+              await captureAndTransferForOrder(order);
+            } catch (error) {
+              console.error('Auto-accept capture/transfer failed:', error);
+            }
+            recomputeOrderStatus(order);
+            await order.save();
+          }
+
+          created.push({ order, paymentIntent, contract });
+        }
+      } else {
+        // One-off order — keep the multi-vendor Order shape.
+        const totalAmount = combinedTotal + deliveryFeeCents;
+        const platformFee = Math.round(totalAmount * (feePercent / 100));
+        const paymentIntent = await createPaymentIntent(totalAmount, {
+          consumerId: organization._id.toString(),
+          orderType: 'multi_vendor',
+        });
+
+        const order = new Order({
+          consumerId: organization._id,
+          status: 'PROCESSING',
+          paymentIntentId: paymentIntent.id,
+          totalAmount,
+          platformFee,
+          subOrders: vendorPayloads.map((v) => v.subOrder),
+          deliveryFeeCents,
+          deliveryDetails: {
+            preparationDayOfWeek: contractOptions.preparationDayOfWeek,
+            mealPeriods: contractOptions.mealPeriods,
+            fulfillmentMethod: contractOptions.fulfillmentMethod,
+          },
+        });
+
+        await order.save();
+
+        for (const sub of order.subOrders) {
+          if (sub.status === 'PENDING') {
+            console.log(
+              `[notify:new-order] vendor=${sub.vendorId} order=${order._id} — push/email would fire`
+            );
+          }
+        }
+
+        if (allActiveSubOrdersAccepted(order.subOrders)) {
+          try {
+            await captureAndTransferForOrder(order);
+          } catch (error) {
+            console.error('Auto-accept capture/transfer failed:', error);
+          }
+          recomputeOrderStatus(order);
+          await order.save();
+        }
+
+        created.push({ order, paymentIntent });
+      }
 
       // Decrement stock quantities for items that track inventory
       if (platformRules.inventory.trackStock) {
@@ -341,13 +489,51 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      const serializeContract = (contract: any) =>
+        contract
+          ? {
+              _id: contract._id,
+              consumerId: contract.consumerId,
+              vendorId: contract.vendorId,
+              durationMonths: contract.durationMonths,
+              startDate: contract.startDate,
+              endDate: contract.endDate,
+              preparationDayOfWeek: contract.preparationDayOfWeek,
+              mealPeriods: contract.mealPeriods,
+              fulfillmentMethod: contract.fulfillmentMethod,
+              pricingTerms: contract.pricingTerms,
+              status: contract.status,
+            }
+          : undefined;
+
+      // Preserve legacy single-order response shape when there is one Order.
+      if (created.length === 1) {
+        const { order, paymentIntent, contract } = created[0];
+        return NextResponse.json({
+          orderId: order._id,
+          paymentIntentId: paymentIntent.id,
+          clientSecret: paymentIntent.client_secret,
+          totalAmount: order.totalAmount,
+          platformFee: order.platformFee,
+          subOrders: order.subOrders,
+          status: order.status,
+          contractId: contract?._id,
+          contract: serializeContract(contract),
+        });
+      }
+
       return NextResponse.json({
-        orderId: order._id,
-        paymentIntentId: paymentIntent.id,
-        clientSecret: paymentIntent.client_secret,
-        totalAmount,
-        platformFee,
-        subOrders: order.subOrders,
+        orders: created.map(({ order, paymentIntent, contract }) => ({
+          orderId: order._id,
+          paymentIntentId: paymentIntent.id,
+          clientSecret: paymentIntent.client_secret,
+          totalAmount: order.totalAmount,
+          platformFee: order.platformFee,
+          subOrders: order.subOrders,
+          status: order.status,
+          contractId: contract?._id,
+          contract: serializeContract(contract),
+        })),
       });
     } finally {
       // Always release lock
@@ -397,7 +583,23 @@ export async function GET(request: NextRequest) {
         orders = orders.filter((order) => order.status === status);
       }
 
-      return NextResponse.json({ orders: orders.slice(0, limit) });
+      // Include vendor UX flags for KDS (sound + acceptance timeout)
+      const store = getMockStore();
+      const activeVendor =
+        role === 'vendor'
+          ? store.organizations.vendors.find((v) => v.id === (vendorId || store.organizations.vendors[0].id))
+          : null;
+      const kdsSoundEnabled = activeVendor?.vendorSettings?.kdsSoundEnabled ?? true;
+      const vendorAcceptanceTimeoutMinutes =
+        DEFAULT_RULES.deliveryTiming.vendorAcceptanceTimeoutMinutes;
+
+      return NextResponse.json({
+        orders: orders.slice(0, limit),
+        vendor: role === 'vendor' ? { kdsSoundEnabled } : undefined,
+        platformRules: {
+          vendorAcceptanceTimeoutMinutes,
+        },
+      });
     }
 
     await connectDB();
@@ -433,7 +635,20 @@ export async function GET(request: NextRequest) {
       .populate('consumerId', 'name')
       .populate('subOrders.vendorId', 'name');
 
-    return NextResponse.json({ orders });
+    // KDS UX metadata (sound + countdown timeout) — cheap to include.
+    const platformRules = await getActivePlatformRules();
+    const vendorAcceptanceTimeoutMinutes =
+      platformRules.deliveryTiming?.vendorAcceptanceTimeoutMinutes ?? 30;
+    const kdsSoundEnabled =
+      organization.type === 'vendor'
+        ? organization.vendorSettings?.kdsSoundEnabled ?? true
+        : undefined;
+
+    return NextResponse.json({
+      orders,
+      vendor: kdsSoundEnabled !== undefined ? { kdsSoundEnabled } : undefined,
+      platformRules: { vendorAcceptanceTimeoutMinutes },
+    });
   } catch (error) {
     console.error('Error fetching orders:', error);
     return NextResponse.json(

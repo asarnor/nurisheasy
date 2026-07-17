@@ -11,6 +11,11 @@ import { apiFetch } from '@/lib/utils/api';
 import { consumerPath } from '@/lib/utils/debug-client';
 import type { FulfillmentMethod } from '@/lib/contract-options';
 import type { MealCategory } from '@/lib/meal-categories';
+import {
+  getOrderContractDetails,
+  type ContractSummary,
+  type OrderWithContract,
+} from '@/lib/types';
 
 interface SubOrder {
   vendorId: string | { _id?: string; name?: string };

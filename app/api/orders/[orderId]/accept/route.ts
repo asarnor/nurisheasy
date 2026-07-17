@@ -2,10 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
 import Order from '@/lib/models/order.model';
 import { getCurrentOrganization } from '@/lib/utils/clerk';
-import { capturePaymentIntent, transferToVendor } from '@/lib/utils/stripe';
-import Organization from '@/lib/models/organization.model';
 import { shouldUseMockData, getDebugRoleFromRequest } from '@/lib/utils/debug';
 import { acceptMockSubOrder, getMockVendorId } from '@/lib/mock-data';
+import {
+  allActiveSubOrdersAccepted,
+  captureAndTransferForOrder,
+  recomputeOrderStatus,
+} from '@/lib/order-lifecycle';
 
 /**
  * POST /api/orders/[orderId]/accept
@@ -82,36 +85,18 @@ export async function POST(
       );
     }
 
-    // Update sub-order status
     order.subOrders[subOrderIndex].status = 'ACCEPTED';
     order.subOrders[subOrderIndex].acceptedAt = new Date();
-    
-    // If all sub-orders are accepted, capture payment and update order status
-    const allAccepted = order.subOrders.every((so) => so.status === 'ACCEPTED');
-    
-    if (allAccepted) {
-      // Capture payment intent
-      await capturePaymentIntent(order.paymentIntentId);
-      
-      // Transfer funds to each vendor
-      for (const so of order.subOrders) {
-        const vendor = await Organization.findById(so.vendorId);
-        if (vendor?.stripeAccountId) {
-          await transferToVendor(
-            so.vendorTotal,
-            vendor.stripeAccountId,
-            order.paymentIntentId,
-            {
-              orderId: order._id.toString(),
-              subOrderId: subOrderIndex.toString(),
-            }
-          );
-        }
+
+    if (allActiveSubOrdersAccepted(order.subOrders)) {
+      try {
+        await captureAndTransferForOrder(order);
+      } catch (error) {
+        console.error('Payment capture/transfer failed on accept:', error);
       }
-      
-      order.status = 'CONFIRMED';
     }
 
+    recomputeOrderStatus(order);
     await order.save();
 
     return NextResponse.json({
